@@ -13,6 +13,8 @@ from ctypes_opencv import *
 
 from math import sqrt
 
+import cPickle
+
 import random
 import math
 
@@ -45,6 +47,10 @@ adapt_2 = 15
 wndname = "SnapCode Detector"
 adapt = "Threshold"
 canny = "Canny"
+
+import memcache
+memc = memcache.Client(['127.0.0.1:11211'])
+
 
 def print_timing(func):
     def wrapper(*arg):
@@ -119,7 +125,7 @@ def up_sample(oimg,multiple):
     '''USe the cvPyr function to upsample an image to 2x.'''
     working_img = cvCloneImage( oimg )
     for x in range(1,multiple+1):
-        print "Step. h:%d w:%d" % (oimg.height, oimg.width)
+        #print "Step. h:%d w:%d" % (oimg.height, oimg.width)
         working_img = cvCreateImage( cvSize(oimg.width*2, oimg.height*2), 8, 3 );
         cvPyrUp( oimg, working_img, CV_GAUSSIAN_5x5 );
         oimg = cvCloneImage( working_img )
@@ -128,14 +134,19 @@ def up_sample(oimg,multiple):
 #@print_timing
 def find_contours( img, storage ):
     sz = cvSize( img.width, img.height )
-
-    timg = cvCloneImage( img ) # make a copy of input image
+    half_sz = cvSize( img.width / 2, img.height / 2 )
+    
+    # img = cvCreateImage( half_sz, 8, 3 )
+    # timg = cvCloneImage( img ) # make a copy of input image
+    # cvPyrDown( img, timg, 7 );
+    
+    # timg = cvCloneImage( img ) # make a copy of input image
     gray = cvCreateImage( sz, 8, 1 )
 
     #timg = down_sample(timg,1)
     #timg = up_sample(timg,1)
 
-    cvCvtColor(timg ,gray, CV_RGB2GRAY)
+    cvCvtColor(img ,gray, CV_RGB2GRAY)
 
     tgray = cvCreateImage( sz, 8, 1 );
     #cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,15,15)
@@ -198,8 +209,8 @@ def find_contours( img, storage ):
     return contour_list
 
 #@print_timing
-def draw_contours(img, contour_list):
-    cpy = cvCloneImage( img );
+def draw_contours(img, contour_list, mult=1):
+    # cpy = cvCloneImage( img );
     max_x = 0
     max_y = 0
     min_x = img.width
@@ -214,6 +225,13 @@ def draw_contours(img, contour_list):
         #     CV_POLY_APPROX_DP, perim*0.02, 0 )
         points = contour.asarray(CvPoint)
 
+        #for i in range(len(points)):
+        #    points[i].x = points[i].x * mult
+        #    points[i].y = points[i].y * mult
+
+        points = [CvPoint(point.x*mult,point.y*mult) for point in points]
+
+
         if equal_length_check(points):
             if right_angle_check(points):
                 # find the outer extremes for a bounding box
@@ -223,12 +241,12 @@ def draw_contours(img, contour_list):
                     min_x = min(min_x,pt.x - 15)
                     min_y = min(min_y,pt.y - 15)
             
-                cvPolyLine( cpy, [points], 1, CV_RGB(0,255,255), 1, CV_AA, 0 )
+                cvPolyLine( img, [points], 1, CV_RGB(0,255,255), 1, CV_AA, 0 )
     bounds = [cvPoint(min_x,min_y),cvPoint(max_x,min_y),cvPoint(max_x,max_y),cvPoint(min_x,max_y)]
     # print '''x:%d y:%d height:%d width:%d''' % (min_x,min_y,max_x-min_x,max_y-min_y)
-    cvPolyLine( cpy, [bounds], 1, CV_RGB(255,255,0), 3, CV_AA, 0 )
-    cvSaveImage( 'test.jpg', cpy)
-    return cpy # cvRect(min_x,min_y,max_x-min_x,max_y-min_y)
+    cvPolyLine( img, [bounds], 1, CV_RGB(255,255,0), 3, CV_AA, 0 )
+    # cvSaveImage( 'test.jpg', img)
+    return cvRect(min_x,min_y,max_x-min_x,max_y-min_y)
 
 
 # def camShiftTest( img, box ):
@@ -246,6 +264,10 @@ def on_trackbar(a):
 
 def on_trackbar2(a):
     thresh[1] = a
+
+@print_timing
+def set_memc(data):
+    memc.set('frame_buffer',data,60)
 
 
 if __name__ == "__main__":
@@ -274,10 +296,13 @@ if __name__ == "__main__":
     #for name in names:
       
     capture = cvCreateCameraCapture( int(name) )
-    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, 640 )
-    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, 480 )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, 800 )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, 600 )
 
     img = cvQueryFrame( capture )
+
+
+
 
     # props = [CV_CAP_PROP_FOURCC]
     # for prop in props:    
@@ -286,38 +311,48 @@ if __name__ == "__main__":
     (width,height) = [cvGetCaptureProperty(capture, prop) for prop in [CV_CAP_PROP_FRAME_WIDTH,CV_CAP_PROP_FRAME_HEIGHT]]
     print width
     print height
-    output_name = 'output_%s.mpg' % (name)
+
+    # output_name = 'output_%s.mpg' % (name)
     
     # print str(cvGetCaptureProperty(capture,CV_CAP_PROP_FOURCC) )
     # result_vid = cvCreateVideoWriter( output_name, MSMPEG4V3, 30.0, cvSize(int(width),int(height)) )
     # result_vid = cvCreateVideoWriter(output_name, FAAD, 30.0, cvSize(640,360) )
-    
+
     while 1:
         img = cvQueryFrame( capture )
 
         if not img:
             break
         
-
-
-        # template = cvLoadImage( "qr_small_corner.png", 1 );
-        # img = cvLoadImage( name, 1 );
-    
-        # x:272 y:192 height:107 width:107
-        # x:247 y:126 height:252 width:252
-        # img0 = cvGetSubRect( img, cvRect(640,440,320,240))
+        pil_img = ipl_to_pil(img)
+        
+        #print (dir(img.data_as_))
+        # I can only assume the 60 is the exiration time
+        #print str(len())
+        set_memc(pil_img)
+        #print str(img.data_as_string())
         # img0 = cvGetSubRect( img, cvRect(247,126,252,252))
-        # 
-        # if not img0:
-        #     print "Couldn't load %s" % name
-        #     continue;
-        img0 = cvCloneImage( img )
 
+        # img0 = cvCloneImage( img )
+        #img1 = cvCloneImage( img )
+        #img1 = down_sample( img, 2)
+
+        #img0 = down_sample( img, 2)
         #cvSetImageROI(img0, cvRect(640,440,320,240))
 
-        cnt = find_contours(img0, storage)
-        ximg = draw_contours(img0, cnt)        
-        cvShowImage(wndname, ximg)
+        # cnt = find_contours(img, storage)
+        # draw_contours(img, cnt, 1)
+
+        test = memc.get('frame_buffer')
+        try:
+            print str(len(test))
+        except:
+            print "Nope"
+
+        
+
+        #ximg = up_sample(img1,2)
+        cvShowImage(wndname, img)
 
         try:
             k = cvWaitKey(5)
