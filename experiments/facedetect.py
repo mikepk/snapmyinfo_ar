@@ -17,7 +17,7 @@ from ctypes_opencv.highgui import *
 # Global Variables
 cascade = None
 storage = cvCreateMemStorage(0)
-cascade_name = "bcode_cascade.xml"
+cascade_name = "bcode_cascade3.xml"
 input_name = "lena.jpg"
 
 # Parameters for haar detection
@@ -27,11 +27,11 @@ input_name = "lena.jpg"
 # images the settings are: 
 # scale_factor=1.2, min_neighbors=2, flags=CV_HAAR_DO_CANNY_PRUNING, 
 # min_size=<minimum possible face size
-min_size = cvSize(10,10)
-image_scale = 1.1
-haar_scale = 1.2
-min_neighbors = 0
-haar_flags = 0
+min_size = cvSize(20,20)
+image_scale = 1.3
+haar_scale = 1.1
+min_neighbors = 1
+haar_flags = CV_HAAR_DO_CANNY_PRUNING
 
 
 def detect_and_draw( img ):
@@ -50,13 +50,14 @@ def detect_and_draw( img ):
         faces = cvHaarDetectObjects( small_img, cascade, storage,
                                      haar_scale, min_neighbors, haar_flags, min_size );
         t = cvGetTickCount() - t;
-        print("detection time = %gms" % (t/(cvGetTickFrequency()*1000.)))
+        #print("detection time = %gms" % (t/(cvGetTickFrequency()*1000.)))
         if faces:
             for r in faces:
                 pt1 = cvPoint( int(r.x*image_scale), int(r.y*image_scale))
                 pt2 = cvPoint( int((r.x+r.width)*image_scale), int((r.y+r.height)*image_scale) )
                 cvRectangle( img, pt1, pt2, CV_RGB(255,0,0), 3, 8, 0 );
 
+    #cvSaveImage( "result.jpg", img );
     cvShowImage( "result", img );
 
 
@@ -88,6 +89,8 @@ if __name__ == '__main__':
 
     if input_name.isdigit():
         capture = cvCreateCameraCapture( int(input_name) )
+        cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, 640 )
+        cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, 480 )
     else:
         capture = cvCreateFileCapture( input_name ); 
 
@@ -97,6 +100,7 @@ if __name__ == '__main__':
         frame_copy = None
         while True: 
             frame = cvQueryFrame( capture );
+
             if( not frame ):
                 break;
             if( not frame_copy ):

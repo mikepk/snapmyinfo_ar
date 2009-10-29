@@ -39,17 +39,11 @@ FAAD = 0x31637661
 #img0 = None;
 storage = None;
 
-thresh = [45,15]
-
-adapt_1 = 45
-adapt_2 = 15
-
 wndname = "SnapCode Detector"
 adapt = "Threshold"
 canny = "Canny"
 
-import memcache
-memc = memcache.Client(['127.0.0.1:11211'])
+
 
 
 def print_timing(func):
@@ -265,10 +259,6 @@ def on_trackbar(a):
 def on_trackbar2(a):
     thresh[1] = a
 
-@print_timing
-def set_memc(data):
-    memc.set('frame_buffer',data,60)
-
 
 if __name__ == "__main__":
     # create memory storage that will contain all the dynamic data
@@ -296,8 +286,8 @@ if __name__ == "__main__":
     #for name in names:
       
     capture = cvCreateCameraCapture( int(name) )
-    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, 800 )
-    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, 600 )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, 640 )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, 480 )
 
     img = cvQueryFrame( capture )
 
@@ -326,10 +316,6 @@ if __name__ == "__main__":
         
         pil_img = ipl_to_pil(img)
         
-        #print (dir(img.data_as_))
-        # I can only assume the 60 is the exiration time
-        #print str(len())
-        set_memc(pil_img)
         #print str(img.data_as_string())
         # img0 = cvGetSubRect( img, cvRect(247,126,252,252))
 
@@ -340,15 +326,8 @@ if __name__ == "__main__":
         #img0 = down_sample( img, 2)
         #cvSetImageROI(img0, cvRect(640,440,320,240))
 
-        # cnt = find_contours(img, storage)
-        # draw_contours(img, cnt, 1)
-
-        test = memc.get('frame_buffer')
-        try:
-            print str(len(test))
-        except:
-            print "Nope"
-
+        cnt = find_contours(img, storage)
+        draw_contours(img, cnt, 1)
         
 
         #ximg = up_sample(img1,2)
@@ -357,9 +336,6 @@ if __name__ == "__main__":
         try:
             k = cvWaitKey(5)
             if k % 0x100 == 27:
-                #cvReleaseImage(img)
-                #cvReleaseImage(img0)
-                #cvReleaseImage(ximg)
                 break
         except TypeError:
             break
