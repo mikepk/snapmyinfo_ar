@@ -1,0 +1,1 @@
+java -cp Z:/zxing/core/core.jar;Z:/zxing/javase/javase.jar;Z:/qrservice QRService
