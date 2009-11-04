@@ -24,7 +24,14 @@ from optparse import OptionParser
 
 from qrcode import qrcode
 
-import ImageEnhance
+import Image, ImageEnhance, ImageFont, ImageDraw
+# # use a bitmap font
+# font = ImageFont.load("arial.pil")
+# 
+# draw.text((10, 10), "hello", font=font)
+
+# use a truetype font
+
 
 # Some constants for video codecs
 H263 = 0x33363255
@@ -46,7 +53,7 @@ canny = "Canny"
 test = "Test Window"
 zone1 = "Left User Card"
 zone2 = "Right User Card"
-
+paint_name = "Paint Display"
 
 class WorkerTest():
     '''A Class to implement a worker object. Accesses shared buffer and does some operations on it.'''
@@ -62,6 +69,7 @@ class WorkerTest():
         self.zonecolor = {}
         self.decoded = {}
         self.decode_window = {}
+        self.display_scale = 1.0
         
     def stop(self):
         '''Kill the worker thread?'''
@@ -70,20 +78,32 @@ class WorkerTest():
         return "Done!"    
     
     def detect(self, rect, window_name):
-        '''A Test method to read from the main buffer, shrink it, display in a window, sleep 30 sec.'''
+        '''Detect and decode barcodes in the image. If rect is passed, only process that subregion of the image.'''
         self.zonecolor[window_name] = CV_RGB(255,255,255)
         self.decoded[window_name] = False
         self.decode_window[window_name] = 0
         
+        screen_font = ImageFont.truetype("arial.ttf", 24)
+        data_font = ImageFont.truetype("arial.ttf", 11)
         qc = qrcode()
         storage = cvCreateMemStorage(0)
         while self.running:
             #if self.frame_buffer:
             cpy = cvCloneImage(self.frame_buffer)
             cpy = cvGetSubRect(cpy, None, rect)
-            cvFlip(cpy,cpy,1)
+
+
+            # new_width = 960.0
+            # scale = new_width / self.frame_buffer.width
+            # small_rect = cvRect(int(rect.x*scale),int(rect.y*scale),int(rect.height*scale),int(rect.width*scale))
+            # cpy = cvCreateImage(cvSize(int(new_width),int(self.frame_buffer.height * scale)),8,3)
+            # cvResize(self.frame_buffer,cpy)
+            # cpy = cvGetSubRect(cpy, None, small_rect)
+            
+            
+            #cvFlip(cpy,cpy,1)
             #cvSetImageROI(cpy,rect)
-            time.sleep(0.15)
+            time.sleep(.15)
             # work = cvGetSubRect(cpy, None, rect)
             # work = cvCloneImage(self.frame_buffer)
             if not self.frame_buffer:
@@ -105,6 +125,11 @@ class WorkerTest():
 
             work = cvGetImage(cpy)
             
+            # work = cvCloneImage(self.frame_buffer)
+            # work = cvGetSubRect(work, None, rect)
+            # work = cvGetImage(work)
+
+            # cvFlip(work,work,1)
             # work = up_sample(work,1)
             
             # gray = cvCreateImage( cvGetSize(work), 8, 1 )
@@ -118,18 +143,26 @@ class WorkerTest():
 
             decode_img = ipl_to_pil(work)
             
-            # decode_img = ImageEnhance.Contrast(
-            decode_img = ImageEnhance.Sharpness(
-            ImageEnhance.Brightness(decode_img).enhance(0.8)
-            ).enhance(1.5)
-            # ).enhance(0.75)
+            decode_img = ImageEnhance.Contrast(
+            ImageEnhance.Sharpness(decode_img).enhance(1.75)
+            # ImageEnhance.Brightness(decode_img).enhance(1.2)
+            
+            ).enhance(0.75)
+            
+            draw = ImageDraw.Draw(worker.paint_buffer)
+            draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-20)), "Scanning...", font=screen_font, fill=(200,200,0,0))
+            
             
             if has_code and not self.decoded[window_name]:
                 data = qc.decode(decode_img)
                 if data != "NO BARCODE":
                     self.zonecolor[window_name] = CV_RGB(0,255,0)
                     self.decoded[window_name] = True
-                    self.decode_window[window_name] = 0                    
+                    self.decode_window[window_name] = 0  
+                    draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-40)), data, font=data_font, fill=(0,200,0,0))
+                    
+                    # draw.text((rect.x, rect.y-20), data, font=screen_font)
+                                      
                     print '''%s decoded %s''' % (window_name,data)
                 else:
                     print '''%s failed to decode''' % (window_name)
@@ -140,9 +173,9 @@ class WorkerTest():
                     #     print '''%s failed to decode''' % (window_name)
             # tst = down_sample(cpy,1)
         
-            
-            cvClearMemStorage( storage )
             cvShowImage(window_name, pil_to_ipl(decode_img))
+            cvClearMemStorage( storage )
+            # (window_name, work) #pil_to_ipl(decode_img))
 
     def oflow_points(self):
         '''Adding the lkdemo code, to track optical flow points'''
@@ -269,9 +302,6 @@ class WorkerTest():
             cvShowImage ('LkDemo', image)
 
 
-    def detect_code(self):
-        pass
-
     def angle(self, pt0, pt1, pt2 ):
         '''Measure the angle between three points.'''
         dx1 = pt1.x - pt0.x;
@@ -361,7 +391,7 @@ class WorkerTest():
         cgray = cvCreateImage( sz, 8, 1 );
         # print '%d and %d' % (thresh[0], thresh[1])
         cvCanny( gray, cgray, 1000, 2000, 5 );
-        cvShowImage(canny, cgray)
+        # cvShowImage(canny, cgray)
 
         # cvSaveImage('canny_gray.jpg',cgray)
 
@@ -546,138 +576,8 @@ def up_sample(oimg,multiple):
     return working_img
 
 #@print_timing
-def find_contours( img, storage ):
-    sz = cvSize( img.width, img.height )
-    half_sz = cvSize( img.width / 2, img.height / 2 )
-    
-    # img = cvCreateImage( half_sz, 8, 3 )
-    # timg = cvCloneImage( img ) # make a copy of input image
-    # cvPyrDown( img, timg, 7 );
-    
-    # timg = cvCloneImage( img ) # make a copy of input image
-    gray = cvCreateImage( sz, 8, 1 )
-
-    #timg = down_sample(timg,1)
-    #timg = up_sample(timg,1)
-
-    cvCvtColor(img ,gray, CV_RGB2GRAY)
-
-    tgray = cvCreateImage( sz, 8, 1 );
-    #cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,15,15)
-    #cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,45,15)
-    cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,21,16)
-    # cvSaveImage('adaptive_gray.jpg',tgray)
-    cvShowImage(adapt, tgray)
-
-    cgray = cvCreateImage( sz, 8, 1 );
-    # print '%d and %d' % (thresh[0], thresh[1])
-    cvCanny( gray, cgray, 1000, 2000, 5 );
-    cvShowImage(canny, cgray)
-
-    # cvSaveImage('canny_gray.jpg',cgray)
 
 
-    # down-scale and upscale the image to filter out the noise
-    # cvPyrDown( subimage, pyr, 7 );
-    # cvSaveImage('down_test.jpg',subimage)
-    # cvPyrUp( pyr, subimage, 7 );
-    # cvSaveImage('up_test.jpg',subimage)
-    # find squares in every color plane of the image
-    contour_list = []
-    # process the thresholded and canny edges
-    test_images = [tgray,cgray]
-
-    # generate a square contour from a synthetic image
-    # template_img = cvCreateImage( cvSize(120, 120), 8, 1 )
-    # cvRectangle(template_img, cvPoint(0,0),cvPoint(120,120), 255, CV_FILLED)
-    # cvRectangle(template_img, cvPoint(10,10),cvPoint(110,110), 0, CV_FILLED)
-    # count, square = cvFindContours(template_img,storage,sizeof(CvContour), CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE, cvPoint(0,0) )
-        
-    for image in test_images:
-        # original:
-        # count, contours = cvFindContours( gray, storage, first_contour, sizeof(CvContour),
-        #     CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE, cvPoint(0,0) );
-        # first_contour = CvContour()
-        count, contours = cvFindContours( image, storage, mode=CV_RETR_LIST, method=CV_CHAIN_APPROX_SIMPLE) 
-
-        #first_contour, sizeof(CvContour),
-        #    CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE, cvPoint(0,0) );
-
-        # test each contour
-        for contour in contours.hrange():            
-            # TODO: Minimum and maximum perimeter is a function
-            # of image size + % of image the code will likely take up
-            perim = cvContourPerimeter(contour)
-            # contour must be at least 10 pixels on a side
-            if perim > 20: #perim > 30 and perim < 300:
-                # if cvMatchShapes(square,contour,2) < 0.001:
-                    # print str(cvMatchShapes(square,contour,2))        
-                    result = cvApproxPoly( contour, sizeof(CvContour), storage,
-                        CV_POLY_APPROX_DP, perim*0.02, 0 )
-                    if result.total == 4 and cvCheckContourConvexity(result):
-                        contour_list.append(result)
-            try:
-                contour = contour.h_next
-            except AttributeError:
-                contour = None
-    return contour_list
-
-#@print_timing
-def draw_contours(img, contour_list, mult=1):
-    # cpy = cvCloneImage( img );
-    max_x = 0
-    max_y = 0
-    min_x = img.width
-    min_y = img.height
-
-    for contour in contour_list:
-        # cvDrawContours(cpy,contour,CV_RGB(255,0,0),CV_RGB(0,255,255),0,1)
-        # points = []
-        # perim = cvContourPerimeter(contour)
-        # # if perim > 30 and perim < 300:
-        # result = cvApproxPoly( contour, sizeof(CvContour), storage,
-        #     CV_POLY_APPROX_DP, perim*0.02, 0 )
-        points = contour.asarray(CvPoint)
-
-        #for i in range(len(points)):
-        #    points[i].x = points[i].x * mult
-        #    points[i].y = points[i].y * mult
-
-        points = [CvPoint(point.x*mult,point.y*mult) for point in points]
-
-
-        if equal_length_check(points):
-            if right_angle_check(points):
-                # find the outer extremes for a bounding box
-                for pt in points:
-                    max_x = max(max_x,pt.x + 15) 
-                    max_y = max(max_y,pt.y + 15)
-                    min_x = min(min_x,pt.x - 15)
-                    min_y = min(min_y,pt.y - 15)
-            
-                cvPolyLine( img, [points], 1, CV_RGB(0,255,255), 1, CV_AA, 0 )
-    bounds = [cvPoint(min_x,min_y),cvPoint(max_x,min_y),cvPoint(max_x,max_y),cvPoint(min_x,max_y)]
-    # print '''x:%d y:%d height:%d width:%d''' % (min_x,min_y,max_x-min_x,max_y-min_y)
-    cvPolyLine( img, [bounds], 1, CV_RGB(255,255,0), 3, CV_AA, 0 )
-    # cvSaveImage( 'test.jpg', img)
-    return cvRect(min_x,min_y,max_x-min_x,max_y-min_y)
-
-
-# def camShiftTest( img, box ):
-#     window = box
-#     cvCamShift( sample_image, window
-#         const CvArr*     prob_image, 
-#         CvRect           window, 
-#         CvTermCriteria   criteria, 
-#         CvConnectedComp* comp, 
-#         CvBox2D*         box        = NULL 
-#     ); 
-    
-def on_trackbar(a):
-    thresh[0] = 3 + 2 * a
-
-def on_trackbar2(a):
-    thresh[1] = a
 
 
 if __name__ == "__main__":
@@ -697,6 +597,8 @@ if __name__ == "__main__":
     cvNamedWindow(wndname, CV_WINDOW_AUTOSIZE)
     cvNamedWindow(zone1, CV_WINDOW_AUTOSIZE)
     cvNamedWindow(zone2, CV_WINDOW_AUTOSIZE)
+    # cvNamedWindow(paint_name, CV_WINDOW_AUTOSIZE)
+
 
     # cvNamedWindow(adapt, CV_WINDOW_AUTOSIZE)
     # cvNamedWindow(canny, CV_WINDOW_AUTOSIZE)
@@ -732,37 +634,47 @@ if __name__ == "__main__":
     # for prop in props:    
     #     print str(cvGetCaptureProperty(capture, prop))
 
-    (width,height) = [cvGetCaptureProperty(capture, prop) for prop in [CV_CAP_PROP_FRAME_WIDTH,CV_CAP_PROP_FRAME_HEIGHT]]
-    if height == 1200:
-        diff = 200
-    elif height == 600:
+    (o_width,o_height) = [cvGetCaptureProperty(capture, prop) for prop in [CV_CAP_PROP_FRAME_WIDTH,CV_CAP_PROP_FRAME_HEIGHT]]
+    if o_height == 1200:
+        diff = 150
+    elif o_height == 600:
+        diff = 75
+    elif o_height == 720:
         diff = 100
-    elif height == 720:
+    elif o_height == 480:
         diff = 0
-    elif height == 480:
-        diff = 60
     else:
         diff = 0
 
-    height = height - (2 * diff)
+    o_height = o_height - (2 * diff)
+
+    final_width = o_width
+    worker.display_scale = final_width / o_width
+
+    width = final_width
+    height = o_height * worker.display_scale
 
     print "%d x %d" % (width,height)
 
-    scan_size = 0.4
+    worker.paint_buffer = Image.new('RGBA',(int(width),int(height)),(0,0,0,255))
 
-    display_dim = int((scan_size-0.1) * height)
+    # scan size is % of the height
+    scan_size = 0.35
+    # display square is a % of the scan size
+    disp_size = scan_size * 0.80
+    
+    display_dim = int((disp_size * height))
     disp_left_x = int(0.25 * width - int(display_dim / 2.0))
     disp_right_x = int(0.75 * width - int(display_dim / 2.0))
     disp_both_y = int(0.75 * height - int(display_dim / 2.0))
 
-    scan_dim = int(scan_size * height)
-    left_x = int(0.25 * width - int(scan_dim / 2.0))
-    right_x = int(0.75 * width - int(scan_dim / 2.0))
-    both_y = int(0.75 * height - int(scan_dim / 2.0))
+    scan_dim = int(scan_size * o_height)
+    left_x = int(0.25 * o_width - int(scan_dim / 2.0))
+    right_x = int(0.75 * o_width - int(scan_dim / 2.0))
+    both_y = diff + int(0.75 * o_height - int(scan_dim / 2.0))
 
 
-    print left_x
-    print right_x
+    print '''left x:%d right x:%d  scan dimension: %d''' % (left_x, right_x, scan_dim)
 
     left_rect = cvRect(left_x,both_y,scan_dim,scan_dim)
     
@@ -784,11 +696,28 @@ if __name__ == "__main__":
     # result_vid = cvCreateVideoWriter( output_name, MSMPEG4V3, 30.0, cvSize(int(width),int(height)) )
     # result_vid = cvCreateVideoWriter(output_name, FAAD, 30.0, cvSize(640,360) )
 
+
+
     while 1:
         worker.frame_buffer = cvQueryFrame( capture )
-        cvSetImageROI(worker.frame_buffer, cvRect(0,diff,int(width),int(height)))
+
+
+        # clip to the size specified
+        disp_buffer = cvGetImage(cvGetSubRect(worker.frame_buffer, None, cvRect(0,diff,int(width),int(height) )) )
+
+        # resize to the size specified
+        # disp_buffer = cvCreateImage(cvSize(int(width),int(height)),8,3)
+        # cvResize(worker.frame_buffer,disp_buffer)
         
-        if not worker.frame_buffer:
+        # do nothing to the original frame but clone it
+        # disp_buffer = cvCloneImage(worker.frame_buffer)
+
+        # set a region of interest
+        # cvSetImageROI(worker.frame_buffer, cvRect(0,diff,int(width),int(height)))
+
+
+        
+        if not disp_buffer:
             break
         # if worker.paint_buffer:
         #     cvShowImage(wndname, worker.paint_buffer)
@@ -809,22 +738,30 @@ if __name__ == "__main__":
         except TypeError:
             break
 
-        disp_img = cvCloneImage(worker.frame_buffer)
+        disp_img = cvCloneImage(disp_buffer)
         try:
-            cvRectangle(disp_img,cvPoint(disp_left_x,disp_both_y),cvPoint(disp_left_x+display_dim,disp_both_y+display_dim),worker.zonecolor[zone1], 8, CV_AA, 0)
-            cvRectangle(disp_img,cvPoint(disp_right_x,disp_both_y),cvPoint(disp_right_x+display_dim,disp_both_y+display_dim),worker.zonecolor[zone2], 8, CV_AA, 0)
+            cvRectangle(disp_img,cvPoint(disp_left_x,disp_both_y),cvPoint(disp_left_x+display_dim,disp_both_y+display_dim),worker.zonecolor[zone1], 3, CV_AA, 0)
+            cvRectangle(disp_img,cvPoint(disp_right_x,disp_both_y),cvPoint(disp_right_x+display_dim,disp_both_y+display_dim),worker.zonecolor[zone2], 3, CV_AA, 0)
         except KeyError:
+            # race condition, the threads haven't set colors yet
             pass
 
-        # disp_img = up_sample(disp_img,1)
-        big_img = cvCreateImage( cvSize(int(width)*2, int(height)*2), 8, 3 )
-        cvPyrUp( disp_img, big_img, CV_GAUSSIAN_5x5 )
+        # Using PIL for screen display
+        if worker.paint_buffer:
+            # cvShowImage(paint_name,pil_to_ipl(worker.paint_buffer))
+            image = ipl_to_pil(disp_img)
+            image.convert('RGBA')
+            disp_image = Image.composite(image,worker.paint_buffer,worker.paint_buffer)
+            disp_img = pil_to_ipl(disp_image)
 
-        cvShowImage(wndname,big_img)
-        #cvWriteFrame(result_vid, ximg)
+        # scale = 320.0 / disp_img.width
+        # big_w = int(disp_img.width * scale)
+        # big_h = int(disp_img.height * scale)
+        # big_image = cvCreateImage(cvSize(int(big_w),int(big_h)),8,3)
+        # cvResize(disp_img,big_image)
+        cvFlip(disp_img,disp_img,1)
+        cvShowImage(wndname,disp_img)
 
-        # # clear memory storage - reset free space position
-        # cvClearMemStorage( storage )
 
     print worker.stop()
     #cvReleaseVideoWriter(result_vid)
