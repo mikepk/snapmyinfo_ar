@@ -25,6 +25,12 @@ from optparse import OptionParser
 from qrcode import qrcode
 
 import Image, ImageEnhance, ImageFont, ImageDraw
+
+# remember to setup the ssh tunnel first
+from SnapRemoteCard import SnapRemoteCard
+
+import re
+
 # # use a bitmap font
 # font = ImageFont.load("arial.pil")
 # 
@@ -55,27 +61,52 @@ zone1 = "Left User Card"
 zone2 = "Right User Card"
 paint_name = "Paint Display"
 
+
+def print_timing(func):
+    def wrapper(*arg):
+        t1 = time.time()
+        res = func(*arg)
+        t2 = time.time()
+        print '%s took %0.3f ms, roughly %0.3f fps' % (func.func_name, (t2-t1)*1000.0, 1.0/((t2-t1)+0.001))
+        return res
+    return wrapper
+
+
+
 class WorkerTest():
     '''A Class to implement a worker object. Accesses shared buffer and does some operations on it.'''
     def __init__(self):
         self.frame_buffer = None
         self.paint_buffer = None
-        self.roi_buffer = []
-        self.of_points_buffer = []
-        #self.storage = cvCreateMemStorage(0);
+        # self.roi_buffer = []
+        # self.of_points_buffer = []
+
         self.running = True
-        self.adapt_history = []
+        # self.adapt_history = []
         self.lock = threading.Lock()
         self.zonecolor = {}
         self.decoded = {}
         self.decode_window = {}
+
+        self.visible_user = {}
+
         self.display_scale = 1.0
+        self.src = SnapRemoteCard()
         
     def stop(self):
         '''Kill the worker thread?'''
         self.running = False
         time.sleep(1)
         return "Done!"    
+    
+    def connect(self):
+        while self.running:
+            self.lock.acquire()
+            users = [self.visible_user[key] for key in self.visible_user.keys()]
+            self.lock.release()
+            if len(users) > 1:
+                print str(users)
+            time.sleep(0.25)
     
     def detect(self, rect, window_name):
         '''Detect and decode barcodes in the image. If rect is passed, only process that subregion of the image.'''
@@ -84,14 +115,14 @@ class WorkerTest():
         self.decode_window[window_name] = 0
         
         screen_font = ImageFont.truetype("arial.ttf", 24)
-        data_font = ImageFont.truetype("arial.ttf", 11)
+        data_font = ImageFont.truetype("arial.ttf", 14)
         qc = qrcode()
         storage = cvCreateMemStorage(0)
         while self.running:
             #if self.frame_buffer:
             cpy = cvCloneImage(self.frame_buffer)
             cpy = cvGetSubRect(cpy, None, rect)
-
+            cvFlip(cpy,cpy,1)
 
             # new_width = 960.0
             # scale = new_width / self.frame_buffer.width
@@ -101,7 +132,7 @@ class WorkerTest():
             # cpy = cvGetSubRect(cpy, None, small_rect)
             
             
-            #cvFlip(cpy,cpy,1)
+            
             #cvSetImageROI(cpy,rect)
             time.sleep(.15)
             # work = cvGetSubRect(cpy, None, rect)
@@ -120,6 +151,14 @@ class WorkerTest():
                     self.zonecolor[window_name] = CV_RGB(255,255,255)
                     self.decode_window[window_name] = 0
                     self.decoded[window_name] = False
+                    try:
+                        if self.visible_user[window_name]:
+                            self.lock.acquire()
+                            del self.visible_user[window_name]
+                            self.lock.release()
+                    except KeyError:
+                        pass
+                        
                 else:
                     self.decode_window[window_name] += 1
 
@@ -143,11 +182,10 @@ class WorkerTest():
 
             decode_img = ipl_to_pil(work)
             
-            decode_img = ImageEnhance.Contrast(
-            ImageEnhance.Sharpness(decode_img).enhance(1.75)
-            # ImageEnhance.Brightness(decode_img).enhance(1.2)
-            
-            ).enhance(0.75)
+            decode_img = ImageEnhance.Sharpness(decode_img).enhance(1.5)
+            # ImageEnhance.Contrast(            
+            # ImageEnhance.Brightness(decode_img).enhance(1.2)   
+            # ).enhance(0.75)
             
             draw = ImageDraw.Draw(worker.paint_buffer)
             draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-20)), "Scanning...", font=screen_font, fill=(200,200,0,0))
@@ -156,22 +194,28 @@ class WorkerTest():
             if has_code and not self.decoded[window_name]:
                 data = qc.decode(decode_img)
                 if data != "NO BARCODE":
+                    # code decoded
                     self.zonecolor[window_name] = CV_RGB(0,255,0)
                     self.decoded[window_name] = True
-                    self.decode_window[window_name] = 0  
-                    draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-40)), data, font=data_font, fill=(0,200,0,0))
-                    
-                    # draw.text((rect.x, rect.y-20), data, font=screen_font)
-                                      
-                    print '''%s decoded %s''' % (window_name,data)
+                    self.decode_window[window_name] = 0
+
+                    match = re.search(r'\/([^\/]*)$',data)
+                    if match:
+                        code = match.group(1)
+                        #print str(code)
+                        user_card = self.src.getCard(code)
+                        if user_card:
+                            draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-40)), user_card['full_name']+" "+str(user_card['user_id']), font=data_font, fill=(0,200,0,0))
+                            print '''%s decoded %s''' % (window_name,user_card['full_name'])
+                            self.lock.acquire()
+                            self.visible_user[window_name] = user_card['user_id']
+                            self.lock.release()
+                        else:
+                            print '''%s : %s''' % (window_name,'No card found')
+                    else:
+                        print '''QR code decoded, is it not a SnapMyInfo code?'''
                 else:
                     print '''%s failed to decode''' % (window_name)
-                    # data = qc.decode_hard(decode_img)
-                    # if data != "NO BARCODE":
-                    #     print '''HARD %s decoded %s''' % (window_name,data)
-                    # else:
-                    #     print '''%s failed to decode''' % (window_name)
-            # tst = down_sample(cpy,1)
         
             cvShowImage(window_name, pil_to_ipl(decode_img))
             cvClearMemStorage( storage )
@@ -322,8 +366,8 @@ class WorkerTest():
 
     def right_angle_check(self, points):
         '''Checks the opposite angles in a closed shape created by four points and makes sure they're nearly 90 degrees.'''
-        ang1 = angle(points[0],points[1],points[2])
-        ang2 = angle(points[2],points[3],points[0])
+        ang1 = self.angle(points[0],points[1],points[2])
+        ang2 = self.angle(points[2],points[3],points[0])
         # print "opposite angles for this countour: %f and %f" % (ang1, ang2)
         # 1.5 radians ~ 86 deg
         if ang1 > 1.4 and ang2 > 1.4:
@@ -351,24 +395,15 @@ class WorkerTest():
             last_l = l
         return True
 
-
     def find_contours( self, img, my_storage ):
         sz = cvSize( img.width, img.height )
-        half_sz = cvSize( img.width / 2, img.height / 2 )
-
-        # img = cvCreateImage( half_sz, 8, 3 )
-        # timg = cvCloneImage( img ) # make a copy of input image
-        # cvPyrDown( img, timg, 7 );
-
-        # timg = cvCloneImage( img ) # make a copy of input image
+        # half_sz = cvSize( img.width / 2, img.height / 2 )
+    
+        # create grayscale version of the image
         gray = cvCreateImage( sz, 8, 1 )
-
-
-        #timg = down_sample(timg,1)
-        #timg = up_sample(timg,1)
-
         cvCvtColor(img ,gray, CV_RGB2GRAY)
 
+        # compute the adaptive threshold
         # tgray = cvCreateImage( sz, 8, 1 );
         # #cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,15,15)
         # #cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,45,15)
@@ -388,20 +423,14 @@ class WorkerTest():
 
         # cvSaveImage('adaptive_gray.jpg',tgray)
         # cvShowImage(adapt, tgray)
+
+        # compute the canny edge detector version of the image
         cgray = cvCreateImage( sz, 8, 1 );
         # print '%d and %d' % (thresh[0], thresh[1])
         cvCanny( gray, cgray, 1000, 2000, 5 );
         # cvShowImage(canny, cgray)
-
         # cvSaveImage('canny_gray.jpg',cgray)
 
-
-        # down-scale and upscale the image to filter out the noise
-        # cvPyrDown( subimage, pyr, 7 );
-        # cvSaveImage('down_test.jpg',subimage)
-        # cvPyrUp( pyr, subimage, 7 );
-        # cvSaveImage('up_test.jpg',subimage)
-        # find squares in every color plane of the image
         contour_list = []
         # process the thresholded and canny edges
         test_images = [cgray]
@@ -465,9 +494,10 @@ class WorkerTest():
 
             points = [CvPoint(int(point.x*mult),int(point.y*mult)) for point in points]
 
-
-            if equal_length_check(points):
-                if right_angle_check(points):
+            # check that the sides are roughly equal in length
+            if self.equal_length_check(points):
+                # check that opposite angles are roughly 90 degrees
+                if self.right_angle_check(points):
                     squares = squares or True
                     # find the outer extremes for a bounding box
                     for pt in points:
@@ -493,67 +523,54 @@ class WorkerTest():
 
 
 
-
-
-
-def print_timing(func):
-    def wrapper(*arg):
-        t1 = time.time()
-        res = func(*arg)
-        t2 = time.time()
-        print '%s took %0.3f ms' % (func.func_name, (t2-t1)*1000.0)
-        return res
-    return wrapper
-
-
-def angle( pt0, pt1, pt2 ):
-    '''Measure the angle between three points.'''
-    dx1 = pt1.x - pt0.x;
-    dy1 = pt1.y - pt0.y;
-    dx2 = pt2.x - pt1.x;
-    dy2 = pt2.y - pt1.y;
-
-    # determine the slopes of the two lines created
-    m1 = dy1 / (dx1 + 1e-10)
-    m2 = dy2 / (dx2 + 1e-10)
-
-    try:
-        return (abs(math.atan( ((m2 - m1) + 1e-10)  / (1.0 + m1 * m2)) ))
-    # sometimes the slopes are the same or roughly the same (maybe different signs)
-    # in this case the angle between them is 0 and the calculation blows up
-    except ZeroDivisionError:
-        return 0
-
-def right_angle_check(points):
-    '''Checks the opposite angles in a closed shape created by four points and makes sure they're nearly 90 degrees.'''
-    ang1 = angle(points[0],points[1],points[2])
-    ang2 = angle(points[2],points[3],points[0])
-    # print "opposite angles for this countour: %f and %f" % (ang1, ang2)
-    # 1.5 radians ~ 86 deg
-    if ang1 > 1.4 and ang2 > 1.4:
-        return True
-    else:
-        return False
-
-
-# check if the distance between all points is roughly the same
-# in other words, a square
-def equal_length_check( points ):
-    '''Check to see if the four line segments of a four point poly are roughly the same.'''
-    last_l = 0
-    max_diff = 0
-    a = [0,1,2,3]
-    b = [1,2,3,0]
-    for i in range(4):
-        # determine the length of the polygon segment
-        l = math.sqrt(abs(points[a[i]].x - points[b[i]].x)**2 + abs(points[a[i]].y - points[b[i]].y)**2)
-        if last_l:
-            # compare the delta of the last segment to the current segment
-            # if it's more than 7 pixels different, then return
-            if (last_l - l) > 3:
-                return False
-        last_l = l
-    return True
+# def angle( pt0, pt1, pt2 ):
+#     '''Measure the angle between three points.'''
+#     dx1 = pt1.x - pt0.x;
+#     dy1 = pt1.y - pt0.y;
+#     dx2 = pt2.x - pt1.x;
+#     dy2 = pt2.y - pt1.y;
+# 
+#     # determine the slopes of the two lines created
+#     m1 = dy1 / (dx1 + 1e-10)
+#     m2 = dy2 / (dx2 + 1e-10)
+# 
+#     try:
+#         return (abs(math.atan( ((m2 - m1) + 1e-10)  / (1.0 + m1 * m2)) ))
+#     # sometimes the slopes are the same or roughly the same (maybe different signs)
+#     # in this case the angle between them is 0 and the calculation blows up
+#     except ZeroDivisionError:
+#         return 0
+# 
+# def right_angle_check(points):
+#     '''Checks the opposite angles in a closed shape created by four points and makes sure they're nearly 90 degrees.'''
+#     ang1 = angle(points[0],points[1],points[2])
+#     ang2 = angle(points[2],points[3],points[0])
+#     # print "opposite angles for this countour: %f and %f" % (ang1, ang2)
+#     # 1.5 radians ~ 86 deg
+#     if ang1 > 1.4 and ang2 > 1.4:
+#         return True
+#     else:
+#         return False
+# 
+# 
+# # check if the distance between all points is roughly the same
+# # in other words, a square
+# def equal_length_check( points ):
+#     '''Check to see if the four line segments of a four point poly are roughly the same.'''
+#     last_l = 0
+#     max_diff = 0
+#     a = [0,1,2,3]
+#     b = [1,2,3,0]
+#     for i in range(4):
+#         # determine the length of the polygon segment
+#         l = math.sqrt(abs(points[a[i]].x - points[b[i]].x)**2 + abs(points[a[i]].y - points[b[i]].y)**2)
+#         if last_l:
+#             # compare the delta of the last segment to the current segment
+#             # if it's more than 7 pixels different, then return
+#             if (last_l - l) > 3:
+#                 return False
+#         last_l = l
+#     return True
 
 def down_sample(oimg,multiple):
     '''Use the cvPyr algorithm and down sample an image to 1/2.'''
@@ -574,11 +591,6 @@ def up_sample(oimg,multiple):
         cvPyrUp( oimg, working_img, CV_GAUSSIAN_5x5 );
         oimg = cvCloneImage( working_img )
     return working_img
-
-#@print_timing
-
-
-
 
 if __name__ == "__main__":
     # create memory storage that will contain all the dynamic data
@@ -620,7 +632,6 @@ if __name__ == "__main__":
     cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, 480 )
 
     worker.frame_buffer = cvQueryFrame( capture )
-
     #worker_thread = threading.Thread(target=worker.detect)
     #worker_thread.start()
 
@@ -659,7 +670,7 @@ if __name__ == "__main__":
     worker.paint_buffer = Image.new('RGBA',(int(width),int(height)),(0,0,0,255))
 
     # scan size is % of the height
-    scan_size = 0.35
+    scan_size = 0.45
     # display square is a % of the scan size
     disp_size = scan_size * 0.80
     
@@ -685,8 +696,10 @@ if __name__ == "__main__":
 
     right_worker_thread = threading.Thread(target=worker.detect,args=(right_rect,zone2))
     right_worker_thread.start()
-    
 
+    connect_thread = threading.Thread(target=worker.connect)
+    connect_thread.start()
+    
     #worker_thread = threading.Thread(target=worker.detect)
     #worker_thread.start()
     
@@ -699,8 +712,12 @@ if __name__ == "__main__":
 
 
     while 1:
-        worker.frame_buffer = cvQueryFrame( capture )
-
+        temp_disp_buffer = cvQueryFrame( capture )
+        # worker.frame_buffer = cvQueryFrame( capture )
+        # mirror the image
+        mirror_buff = cvCreateImage(cvSize(int(width),int(height)),8,3)
+        cvFlip(temp_disp_buffer,mirror_buff,1)
+        worker.frame_buffer = cvCloneImage(mirror_buff)
 
         # clip to the size specified
         disp_buffer = cvGetImage(cvGetSubRect(worker.frame_buffer, None, cvRect(0,diff,int(width),int(height) )) )
@@ -759,7 +776,7 @@ if __name__ == "__main__":
         # big_h = int(disp_img.height * scale)
         # big_image = cvCreateImage(cvSize(int(big_w),int(big_h)),8,3)
         # cvResize(disp_img,big_image)
-        cvFlip(disp_img,disp_img,1)
+        
         cvShowImage(wndname,disp_img)
 
 
