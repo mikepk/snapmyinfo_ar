@@ -13,6 +13,7 @@ import sys
 from ctypes_opencv.cv import *
 from ctypes_opencv.highgui import *
 
+import time
 
 # Global Variables
 cascade = None
@@ -27,12 +28,22 @@ input_name = "lena.jpg"
 # images the settings are: 
 # scale_factor=1.2, min_neighbors=2, flags=CV_HAAR_DO_CANNY_PRUNING, 
 # min_size=<minimum possible face size
-min_size = cvSize(20,20)
-image_scale = 1.3
+min_size = cvSize(30,30)
+image_scale = 1
 haar_scale = 1.1
-min_neighbors = 1
-haar_flags = CV_HAAR_DO_CANNY_PRUNING
+min_neighbors = 3
+haar_flags = 0
+#CV_HAAR_DO_CANNY_PRUNING
 
+
+def print_timing(func):
+    def wrapper(*arg):
+        t1 = time.time()
+        res = func(*arg)
+        t2 = time.time()
+        print '%s took %0.3f ms, roughly %0.3f fps' % (func.func_name, (t2-t1)*1000.0, 1.0/((t2-t1)+0.001))
+        return res
+    return wrapper
 
 def detect_and_draw( img ):
     gray = cvCreateImage( cvSize(img.width,img.height), 8, 1 );
@@ -99,6 +110,7 @@ if __name__ == '__main__':
     if( capture ):
         frame_copy = None
         while True: 
+            # time.sleep(0.15)
             frame = cvQueryFrame( capture );
 
             if( not frame ):
@@ -120,7 +132,7 @@ if __name__ == '__main__':
         image = cvLoadImage( input_name, 1 );
 
         if( image ):
-        
+            
             detect_and_draw( image );
             cvWaitKey(0);
         

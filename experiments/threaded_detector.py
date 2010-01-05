@@ -1,9 +1,5 @@
 #!/usr/bin/python
 #
-# The full "Square Detector" program.
-# It loads several images subsequentally and tries to find squares in
-# each image
-#
 import sys
 
 #from opencv.cv import *
@@ -28,6 +24,7 @@ import Image, ImageEnhance, ImageFont, ImageDraw
 
 # remember to setup the ssh tunnel first
 from SnapRemoteCard import SnapRemoteCard
+from SnapCommand import SnapCommand
 
 import re
 
@@ -39,18 +36,18 @@ import re
 # use a truetype font
 
 
-# Some constants for video codecs
-H263 = 0x33363255
-H263I = 0x33363249
-MSMPEG4V3 = 0x33564944
-MPEG4 = 0x58564944
-MSMPEG4V2 = 0x3234504D
-MJPEG = 0x47504A4D
-MPEG1VIDEO = 0x314D4950
-AC3 = 0x2000
-MP2 = 0x50
-FLV1 = 0x31564C46
-FAAD = 0x31637661
+# # Some constants for video codecs
+# H263 = 0x33363255
+# H263I = 0x33363249
+# MSMPEG4V3 = 0x33564944
+# MPEG4 = 0x58564944
+# MSMPEG4V2 = 0x3234504D
+# MJPEG = 0x47504A4D
+# MPEG1VIDEO = 0x314D4950
+# AC3 = 0x2000
+# MP2 = 0x50
+# FLV1 = 0x31564C46
+# FAAD = 0x31637661
 
 
 wndname = "SnapCode Detector"
@@ -94,18 +91,36 @@ class WorkerTest():
         self.src = SnapRemoteCard()
         
     def stop(self):
-        '''Kill the worker thread?'''
+        '''Kill the worker threads?'''
         self.running = False
         time.sleep(1)
         return "Done!"    
     
     def connect(self):
+        com = SnapCommand()
         while self.running:
             self.lock.acquire()
             users = [self.visible_user[key] for key in self.visible_user.keys()]
             self.lock.release()
             if len(users) > 1:
-                print str(users)
+                # print str(users)
+                if self.src.connect(users):
+                    # take a photo of the connectee's
+                    # if self.frame_buffer:
+                    #     # flip the image first
+                    
+                    save_img = ipl_to_pil(cvCloneImage(self.frame_buffer))
+                    users_data = [str(user_id) for user_id in users]
+                    user_string = '_'.join(users_data)
+                    save_img.save('''%s_connection.jpg''' % (user_string))
+                    # cvSaveImage('connection.jpg',self.frame_buffer)
+                    print "CONNECTED!"
+                else:
+                    print "Not Connected"
+
+                for key in self.visible_user.keys():
+                    del self.visible_user[key]
+                # print str(users)
             time.sleep(0.25)
     
     def detect(self, rect, window_name):
@@ -118,6 +133,7 @@ class WorkerTest():
         data_font = ImageFont.truetype("arial.ttf", 14)
         qc = qrcode()
         storage = cvCreateMemStorage(0)
+        draw = ImageDraw.Draw(self.paint_buffer)
         while self.running:
             #if self.frame_buffer:
             cpy = cvCloneImage(self.frame_buffer)
@@ -134,7 +150,7 @@ class WorkerTest():
             
             
             #cvSetImageROI(cpy,rect)
-            time.sleep(.15)
+            time.sleep(0.15)
             # work = cvGetSubRect(cpy, None, rect)
             # work = cvCloneImage(self.frame_buffer)
             if not self.frame_buffer:
@@ -146,8 +162,11 @@ class WorkerTest():
                 self.decode_window[window_name] = 0
             elif has_code and not self.decoded[window_name]:
                 self.zonecolor[window_name] = CV_RGB(255,255,0)
+                draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-20)), "Scanning...", font=screen_font, fill=(200,200,0,0))
+                
             else:
                 if self.decode_window[window_name] > 6:
+                    draw.rectangle([int(self.display_scale*rect.x-100), int(self.display_scale * rect.y-100), int(self.display_scale * rect.x+100+rect.width), int(self.display_scale * rect.y+100+rect.height)], fill=(0,0,0,255))
                     self.zonecolor[window_name] = CV_RGB(255,255,255)
                     self.decode_window[window_name] = 0
                     self.decoded[window_name] = False
@@ -187,8 +206,7 @@ class WorkerTest():
             # ImageEnhance.Brightness(decode_img).enhance(1.2)   
             # ).enhance(0.75)
             
-            draw = ImageDraw.Draw(worker.paint_buffer)
-            draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-20)), "Scanning...", font=screen_font, fill=(200,200,0,0))
+
             
             
             if has_code and not self.decoded[window_name]:
@@ -203,21 +221,24 @@ class WorkerTest():
                     if match:
                         code = match.group(1)
                         #print str(code)
-                        user_card = self.src.getCard(code)
+                        user_card = self.src.get_card(code)
                         if user_card:
-                            draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-40)), user_card['full_name']+" "+str(user_card['user_id']), font=data_font, fill=(0,200,0,0))
+                            draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-40)), user_card['full_name'], font=data_font, fill=(0,200,0,0))
                             print '''%s decoded %s''' % (window_name,user_card['full_name'])
                             self.lock.acquire()
                             self.visible_user[window_name] = user_card['user_id']
                             self.lock.release()
                         else:
+                            self.zonecolor[window_name] = CV_RGB(180,0,0)
                             print '''%s : %s''' % (window_name,'No card found')
                     else:
+                        self.zonecolor[window_name] = CV_RGB(180,0,0)
                         print '''QR code decoded, is it not a SnapMyInfo code?'''
                 else:
-                    print '''%s failed to decode''' % (window_name)
+                    pass
+                    # print '''%s failed to decode''' % (window_name)
         
-            cvShowImage(window_name, pil_to_ipl(decode_img))
+            # cvShowImage(window_name, pil_to_ipl(decode_img))
             cvClearMemStorage( storage )
             # (window_name, work) #pil_to_ipl(decode_img))
 
@@ -235,8 +256,8 @@ class WorkerTest():
         MAX_COUNT = 200
         
         while self.running:
-            #frame = cvCloneImage(self.frame_buffer)
-            frame = down_sample(self.frame_buffer,2)
+            frame = cvCloneImage(self.frame_buffer)
+            #frame = down_sample(self.frame_buffer,2)
 
             if image is None:
                 # create the images we need
@@ -398,42 +419,28 @@ class WorkerTest():
     def find_contours( self, img, my_storage ):
         sz = cvSize( img.width, img.height )
         # half_sz = cvSize( img.width / 2, img.height / 2 )
+
+        test_images = []
     
         # create grayscale version of the image
         gray = cvCreateImage( sz, 8, 1 )
         cvCvtColor(img ,gray, CV_RGB2GRAY)
 
-        # compute the adaptive threshold
+        # # compute the adaptive threshold
         # tgray = cvCreateImage( sz, 8, 1 );
         # #cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,15,15)
         # #cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,45,15)
         # cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,41,16)
-        # 
-        # # self.adapt_history.append(tgray)
-        # # 
-        # # xgray = cvCloneImage(tgray)
-        # # for elem in self.adapt_history:
-        # #     cvAnd(elem, xgray, xgray)
-        # # 
-        # # 
-        # # if len(self.adapt_history) > 5:
-        # #     self.adapt_history.pop(0)
-        # 
-        # #print str(len(self.adapt_history))
-
-        # cvSaveImage('adaptive_gray.jpg',tgray)
-        # cvShowImage(adapt, tgray)
+        # test_images.append(tgray)
 
         # compute the canny edge detector version of the image
         cgray = cvCreateImage( sz, 8, 1 );
-        # print '%d and %d' % (thresh[0], thresh[1])
         cvCanny( gray, cgray, 1000, 2000, 5 );
+        test_images.append(cgray)
         # cvShowImage(canny, cgray)
         # cvSaveImage('canny_gray.jpg',cgray)
 
         contour_list = []
-        # process the thresholded and canny edges
-        test_images = [cgray]
 
         # generate a square contour from a synthetic image
         # template_img = cvCreateImage( cvSize(120, 120), 8, 1 )
@@ -607,16 +614,15 @@ if __name__ == "__main__":
     opts, args = parser.parse_args()
 
     cvNamedWindow(wndname, CV_WINDOW_AUTOSIZE)
-    cvNamedWindow(zone1, CV_WINDOW_AUTOSIZE)
-    cvNamedWindow(zone2, CV_WINDOW_AUTOSIZE)
+    # cvNamedWindow(zone1, CV_WINDOW_AUTOSIZE)
+    # cvNamedWindow(zone2, CV_WINDOW_AUTOSIZE)
     # cvNamedWindow(paint_name, CV_WINDOW_AUTOSIZE)
-
 
     # cvNamedWindow(adapt, CV_WINDOW_AUTOSIZE)
     # cvNamedWindow(canny, CV_WINDOW_AUTOSIZE)
     # 
     # cvNamedWindow(test, CV_WINDOW_AUTOSIZE)
-    #cvNamedWindow('LkDemo', CV_WINDOW_AUTOSIZE)
+    # cvNamedWindow('LkDemo', CV_WINDOW_AUTOSIZE)
 
     worker = WorkerTest()
 
@@ -628,15 +634,15 @@ if __name__ == "__main__":
     #for name in names:
       
     capture = cvCreateCameraCapture( int(name) )
-    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, 640 )
-    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, 480 )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, 1280 )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, 720 )
 
     worker.frame_buffer = cvQueryFrame( capture )
     #worker_thread = threading.Thread(target=worker.detect)
     #worker_thread.start()
 
-    #worker_thread2 = threading.Thread(target=worker.oflow_points)
-    #worker_thread2.start()
+    # worker_oflow = threading.Thread(target=worker.oflow_points)
+    # worker_oflow.start()
 
     # worker_display_thread = threading.Thread(target=worker.display)
     # worker_display_thread.start()
@@ -647,13 +653,15 @@ if __name__ == "__main__":
 
     (o_width,o_height) = [cvGetCaptureProperty(capture, prop) for prop in [CV_CAP_PROP_FRAME_WIDTH,CV_CAP_PROP_FRAME_HEIGHT]]
     if o_height == 1200:
-        diff = 150
+        diff = 125
     elif o_height == 600:
-        diff = 75
-    elif o_height == 720:
+        diff = 60
+    elif o_width == 960 and o_height == 720:
         diff = 100
-    elif o_height == 480:
+    elif o_width == 1280 and o_height == 720:
         diff = 0
+    elif o_height == 480:
+        diff = 50
     else:
         diff = 0
 
@@ -670,19 +678,19 @@ if __name__ == "__main__":
     worker.paint_buffer = Image.new('RGBA',(int(width),int(height)),(0,0,0,255))
 
     # scan size is % of the height
-    scan_size = 0.45
+    scan_size = 0.25
     # display square is a % of the scan size
     disp_size = scan_size * 0.80
     
     display_dim = int((disp_size * height))
     disp_left_x = int(0.25 * width - int(display_dim / 2.0))
     disp_right_x = int(0.75 * width - int(display_dim / 2.0))
-    disp_both_y = int(0.75 * height - int(display_dim / 2.0))
+    disp_both_y = int(0.85 * height - int(display_dim / 2.0))
 
     scan_dim = int(scan_size * o_height)
     left_x = int(0.25 * o_width - int(scan_dim / 2.0))
     right_x = int(0.75 * o_width - int(scan_dim / 2.0))
-    both_y = diff + int(0.75 * o_height - int(scan_dim / 2.0))
+    both_y = int(0.85 * o_height - int(scan_dim / 2.0))
 
 
     print '''left x:%d right x:%d  scan dimension: %d''' % (left_x, right_x, scan_dim)
@@ -712,15 +720,15 @@ if __name__ == "__main__":
 
 
     while 1:
-        temp_disp_buffer = cvQueryFrame( capture )
-        # worker.frame_buffer = cvQueryFrame( capture )
+        # temp_disp_buffer = cvQueryFrame( capture )
+        worker.frame_buffer = cvQueryFrame( capture )
         # mirror the image
-        mirror_buff = cvCreateImage(cvSize(int(width),int(height)),8,3)
-        cvFlip(temp_disp_buffer,mirror_buff,1)
-        worker.frame_buffer = cvCloneImage(mirror_buff)
+        # mirror_buff = cvCreateImage(cvSize(int(width),int(height)),8,3)
+        # cvFlip(temp_disp_buffer,mirror_buff,1)
+        # worker.frame_buffer = cvCloneImage(mirror_buff)
 
         # clip to the size specified
-        disp_buffer = cvGetImage(cvGetSubRect(worker.frame_buffer, None, cvRect(0,diff,int(width),int(height) )) )
+        disp_buffer = cvGetImage(cvGetSubRect(worker.frame_buffer, None, cvRect(0,0,int(width),int(height) )) )
 
         # resize to the size specified
         # disp_buffer = cvCreateImage(cvSize(int(width),int(height)),8,3)
@@ -764,20 +772,25 @@ if __name__ == "__main__":
             pass
 
         # Using PIL for screen display
-        if worker.paint_buffer:
-            # cvShowImage(paint_name,pil_to_ipl(worker.paint_buffer))
-            image = ipl_to_pil(disp_img)
-            image.convert('RGBA')
-            disp_image = Image.composite(image,worker.paint_buffer,worker.paint_buffer)
-            disp_img = pil_to_ipl(disp_image)
+        # if worker.paint_buffer:
+        #     # cvShowImage(paint_name,pil_to_ipl(worker.paint_buffer))
+        #     image = ipl_to_pil(disp_img)
+        #     image.convert('RGBA')
+        #     disp_image = Image.composite(image,worker.paint_buffer,worker.paint_buffer)
+        #     # ow,oh = disp_image.size
+        #     # scale = 1280.0 / ow
+        #     # big_w = int(ow * scale)
+        #     # big_h = int(oh * scale)
+        #     # disp_image = disp_image.resize((big_w,big_h))
+        #     disp_img = pil_to_ipl(disp_image)
 
-        # scale = 320.0 / disp_img.width
-        # big_w = int(disp_img.width * scale)
-        # big_h = int(disp_img.height * scale)
-        # big_image = cvCreateImage(cvSize(int(big_w),int(big_h)),8,3)
-        # cvResize(disp_img,big_image)
-        
-        cvShowImage(wndname,disp_img)
+        scale = 1600.0 / disp_img.width
+        big_w = int(disp_img.width * scale)
+        big_h = int(disp_img.height * scale)
+        big_image = cvCreateImage(cvSize(int(big_w),int(big_h)),8,3)
+        cvResize(disp_img,big_image)
+        # cvSmooth(big_image,big_image,)
+        cvShowImage(wndname,big_image)
 
 
     print worker.stop()
