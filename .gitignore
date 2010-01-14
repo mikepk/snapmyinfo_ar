@@ -2,3 +2,5 @@
 *.pyc
 qrservice/
 zxing/
+install/
+live_detector/*.jpg

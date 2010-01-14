@@ -20,7 +20,7 @@ from optparse import OptionParser
 
 from qrcode import qrcode
 
-import Image, ImageEnhance, ImageFont, ImageDraw, ImageOps
+import Image, ImageEnhance, ImageFont, ImageDraw
 
 # remember to setup the ssh tunnel first
 from SnapRemoteCard import SnapRemoteCard
@@ -46,15 +46,37 @@ pygame.init()
 # 
 # sys.exit(0)
 
-wndname = "Live Detector"
+
+# # use a bitmap font
+# font = ImageFont.load("arial.pil")
+# 
+# draw.text((10, 10), "hello", font=font)
+
+# use a truetype font
+
+
+# # Some constants for video codecs
+# H263 = 0x33363255
+# H263I = 0x33363249
+# MSMPEG4V3 = 0x33564944
+# MPEG4 = 0x58564944
+# MSMPEG4V2 = 0x3234504D
+# MJPEG = 0x47504A4D
+# MPEG1VIDEO = 0x314D4950
+# AC3 = 0x2000
+# MP2 = 0x50
+# FLV1 = 0x31564C46
+# FAAD = 0x31637661
+
+
+wndname = "SnapCode Detector"
 adapt = "Threshold"
 canny = "Canny"
 test = "Test Window"
-lk = "Optical Flow"
 zone1 = "Left User Card"
 zone2 = "Right User Card"
 paint_name = "Paint Display"
-sub_win = "Sub Window"
+
 
 def print_timing(func):
     def wrapper(*arg):
@@ -64,34 +86,6 @@ def print_timing(func):
         print '%s took %0.3f ms, roughly %0.3f fps' % (func.func_name, (t2-t1)*1000.0, 1.0/((t2-t1)+0.001))
         return res
     return wrapper
-
-
-
-class Code():
-    '''Object to represent the model of a QRcode in the display'''
-
-    def __init__(self):
-        self.sample_window = []
-        
-    def scan_samples(self,samples):
-        '''Check all square samples, collect ones that may be relevant to this code.'''
-        pass
-
-
-
-class Circle():
-    '''a circle object in the display'''
-    def __init__(self,x,y,r):
-        self.x = x
-        self.y = y
-        self.r = r
-
-class Square():
-    '''a circle object in the display'''
-    def __init__(self,center,perim,points):
-        self.center = center
-        self.perim = perim
-        self.points = points
 
 
 
@@ -116,14 +110,9 @@ class WorkerTest():
         self.src = SnapRemoteCard()
         
         self.thresh_bot = 230
-        self.thresh_top = 340        
+        self.thresh_top = 340
         
-        self.avg_mode = False
-        
-        self.thresh_samples = []
-        self.last_gray = None
-        
-        self.bounds = [100,100,300,300]
+        self.take_pic = False
         
     def stop(self):
         '''Kill the worker threads?'''
@@ -184,12 +173,10 @@ class WorkerTest():
         rects = [rect] #top_left,top_right,bot_left,bot_right]
         rect_idx = 0
         
-        last_frame = []
         last_rect = None
-
         while self.running:
             # sleep to avoid monopolizing CPU
-            # time.sleep(2)
+            # time.sleep(0.15)
             
             #if self.frame_buffer:
             rect = rects[rect_idx]
@@ -197,12 +184,15 @@ class WorkerTest():
             if rect_idx > len(rects)-1:
                 rect_idx=0
             cpy = cvCloneImage(self.frame_buffer)
-            scale = 1.0
+            scale = 1
             # if orig_size.width > 640:
             #     small_image =  cvCreateImage( cvSize(orig_size.width / 2, orig_size.height/2), 8, 3 )
+            #     # small_cpy = 
             #     cvPyrDown( cpy, small_image, CV_GAUSSIAN_5x5 );
             #     cpy = small_image
-            #     scale = 2.0
+            #     scale = 2
+
+
 
             # cpy = cvGetSubRect(cpy, None, rect)
             # cvFlip(cpy,cpy,1)
@@ -223,27 +213,18 @@ class WorkerTest():
                 self.running = False
                 break
             cnt = self.find_contours(cpy, storage)
+            has_code, bounds = self.draw_contours(cpy, cnt, 1)
             
-            # has_code, bounds = self.draw_contours(cpy, cnt, scale)
-            bounds, p_mat = self.draw_contours(cpy, cnt, scale)
-            # bounds = None
-            has_code = False
-
-
             if bounds:
                 # pass
-                self.lock.acquire()
-                self.bounds = bounds
-                self.lock.release()
-                if bounds[2] > 25 and bounds[3] > 25:
-                    self.need_to_init = True
                 if last_rect:
+                    # draw_rect = pygame.Rect(last_bounds[0]+rect.x,last_bounds[1]+rect.y,last_bounds[2],bounds[3])
                     gfxdraw.rectangle(self.paint_buffer, last_rect, (0,0,0))                    
+                # draw_rect = pygame.Rect(rect.width - (bounds[0] * scale +rect.x+bounds[2] * scale),bounds[1] * scale+rect.y,bounds[2] * scale,bounds[3] * scale)
                 draw_rect = pygame.Rect(bounds[0],bounds[1],bounds[2],bounds[3])
                 
-                # gfxdraw.rectangle(self.paint_buffer, draw_rect, Color("red"))
-                # last_rect = draw_rect
-
+                gfxdraw.rectangle(self.paint_buffer, draw_rect, Color("red"))
+                last_rect = draw_rect
 
             if has_code and self.decoded[window_name]:
                 self.decode_window[window_name] = 0
@@ -268,113 +249,34 @@ class WorkerTest():
                 else:
                     self.decode_window[window_name] += 1
 
-                    # cpy = cvGetSubRect(cpy, None, rect)
-                    # cvFlip(cpy,cpy,1)
-
-            if last_rect:
-                gfxdraw.rectangle(self.paint_buffer, last_rect, (0,0,0))
-                last_rect = None
-
-
-
-            warped = cvCreateImage( (cpy.width,cpy.height), 8, 3)
+            work = cvGetImage(cpy)
             
-            if p_mat:
-                cvWarpPerspective(cpy,warped,p_mat)
+            # work = cvCloneImage(self.frame_buffer)
+            # work = cvGetSubRect(work, None, rect)
+            # work = cvGetImage(work)
 
-            cvShowImage(adapt,warped)
+            # cvFlip(work,work,1)
+            # work = up_sample(work,1)
+            
+            # gray = cvCreateImage( cvGetSize(work), 8, 1 )
+            # 
+            # cvCvtColor(work ,gray, CV_RGB2GRAY)
+            # 
+            # tgray = cvCreateImage( cvGetSize(work), 8, 1 );
+            # cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,55,15)
+            # 
+            # cvCvtColor(tgray , work, CV_GRAY2RGB)
 
-            out_of_bounds = False
-            if bounds:
-                if bounds[0] < 0 or bounds[1] < 0:
-                    out_of_bounds = True
-                if bounds[0] + bounds[2] > warped.width:
-                    out_of_bounds = True
-                if bounds[1] + bounds[3] > warped.height:
-                    out_of_bounds = True
+
+            # Turn the image to a PIL image and sharpen for decode
+            # decode_img = ipl_to_pil(work)
+            # 
+            # decode_img = ImageEnhance.Sharpness(decode_img).enhance(1.5)
+            # # ImageEnhance.Contrast(            
+            # # ImageEnhance.Brightness(decode_img).enhance(1.2)   
+            # # ).enhance(0.75)
             
 
-            if bounds and not out_of_bounds:
-                work = cvGetImage(cvGetSubRect(warped, None, bounds)) # cvGetImage(cpy)
-
-                # try:
-                #     self.last_frame
-                # except AttributeError:
-                #     self.last_frame = None
-                #     self.second_to_last_frame = None
-                # 
-                # if self.last_frame:
-                #     cvAdd(work,self.last_frame,work)
-                # self.last_frame = work
-                sz = cvSize( work.width, work.height )
-
-
-                # # create grayscale version of the image
-                # gray = cvCreateImage( sz, 8, 1 )
-                # cvCvtColor(work ,gray, CV_RGB2GRAY)
-                # 
-                # # equalize the grayscale
-                # cvEqualizeHist( gray, gray );
-                # 
-                # cvThreshold(gray,gray,128,255,CV_THRESH_BINARY) 
-                cvFlip(work,work,1)
-
-                wd = 200
-                scale = (wd / 1.0) / sz.width
-                ht = int(sz.height * scale + 0.5)
-
-                big_work = cvCreateImage((wd,ht),8,3)
-                # new_work = cvCreateImage((wd,ht),8,3)
-                cvResize(work,big_work,CV_INTER_CUBIC)
-
-                if last_frame and self.avg_mode:
-                    # cvAdd(big_work,last_frame,big_work)
-                    cvZero(new_work) # = cvCloneImage(big_work)
-                    for i in range(len(last_frame)):
-                        cvAddWeighted(last_frame[i],1.0/(len(last_frame)),new_work,1.0,0,new_work)
-                last_frame.append(big_work)
-                last_frame = last_frame[-5:]
-
-                if not self.avg_mode:
-                    new_work = cvCloneImage(big_work)
-                    # new_work = cvCreateImage((wd,ht),8,1)
-                    # cvCvtColor(new_work, big_work, CV_GRAY2RGB)
-
-                cvShowImage(sub_win,new_work)
-                
-                    
-                # Turn the image to a PIL image and sharpen for decode
-                decode_img = ipl_to_pil(new_work)
-
-                # # decode_img = ImageOps.equalize(decode_img)
-                # decode_img = ImageEnhance.Sharpness(decode_img).enhance(1.5)
-                # decode_img = ImageOps.autocontrast(decode_img)
-                # 
-                # # 
-                # 
-                # # ImageEnhance.Contrast(            
-                # # ImageEnhance.Brightness(decode_img).enhance(1.2)   
-                # # ).enhance(0.75)
-                # 
-                # cvShowImage(sub_win,pil_to_ipl(decode_img))
-                
-                data = qc.decode(decode_img)
-                if data != "NO BARCODE":
-                    color = (0,255,0)
-                    # print data
-                else:
-                    color = (255,0,0)
-                        
-                # pass
-                self.lock.acquire()
-                self.bounds = bounds
-                self.lock.release()
-                # if bounds[2] > 25 and bounds[3] > 25:
-                #     self.need_to_init = True
-                draw_rect = pygame.Rect(bounds[0],bounds[1],bounds[2],bounds[3])
-                gfxdraw.rectangle(self.paint_buffer, draw_rect, color)
-                last_rect = draw_rect
-                
             
             
             # if has_code and not self.decoded[window_name]:
@@ -413,65 +315,19 @@ class WorkerTest():
     def oflow_points(self):
         '''Adding the lkdemo code, to track optical flow points'''
         self.need_to_init = True
-        # self.of_points = [[], []]
-
-        points_to_find = []
-        found_points = []
-
+        self.of_points = [[], []]
         night_mode = False
         image = None
         pt = None
         add_remove_pt = False
         flags = 0
         
-        mask = None
-        
         win_size = 10
-        MAX_COUNT = 50
-        small_bounds = [int(point / 2.0) for point in self.bounds]
-        small_rect = cvRect(*small_bounds)
+        MAX_COUNT = 200
         
         while self.running:
-            # time.sleep(0.25)
             frame = cvCloneImage(self.frame_buffer)
-            
-            frame = down_sample(frame,1)
-            # # new_width = 960.0
-            # # scale = new_width / self.frame_buffer.width
-            # if not small_rect:
-            self.lock.acquire()
-            small_rect = cvRect(*self.bounds)
-            self.lock.release()
-            # if not mask:
-            #      size = cvGetSize(frame)
-            #      mask = cvCreateImage (cvSize(size.width,size.height), 8, 1)
-            # cvSetZero(mask)
-            self.lock.acquire()
-            # 
-            small_bounds = [int(point / 2.0) for point in self.bounds]
-            # cvFillPoly(mask,[[
-            # cvPoint(small_bounds[0],small_bounds[1]),
-            # cvPoint(small_bounds[0]+small_bounds[2],small_bounds[1]),
-            # cvPoint(small_bounds[0]+small_bounds[2],small_bounds[1]+small_bounds[3]),
-            # cvPoint(small_bounds[0],small_bounds[1]+small_bounds[3])
-            # ]],CV_RGB(255,255,255))
-
-
-            # cvCvtColor (mymask, mask, CV_BGR2GRAY)
-            # # cvShowImage(adapt,mask)
-            # #small_rect = cvRect(*self.bounds) #int(200),int(200),int(100),int(100))
-            self.lock.release()
-            # mask = cvGetArray(mask)
-
-            # 
-            # # cpy = cvCreateImage(cvSize(int(new_width),int(self.frame_buffer.height * scale)),8,3)
-            # # cvResize(self.frame_buffer,cpy)
-            # cvSetImageROI(frame,small_rect)
-            # print str(small_rect)
-            # cpy = cvGetSubRect(frame, None, small_rect)
-            # frame = cvGetImage(cpy)
-            # frame = cpy
-            # frame = down_sample(self.frame_buffer,1)
+            frame = down_sample(self.frame_buffer,1)
 
             if image is None:
                 # create the images we need
@@ -481,13 +337,13 @@ class WorkerTest():
                 prev_grey = cvCreateImage (cvGetSize (frame), 8, 1)
                 pyramid = cvCreateImage (cvGetSize (frame), 8, 1)
                 prev_pyramid = cvCreateImage (cvGetSize (frame), 8, 1)
-                # self.of_points = [[], []]
+                self.of_points = [[], []]
 
             # copy the frame, so we can draw on it
-            # if frame.origin:
-            #     cvFlip(frame, image)
-            # else:
-            cvCopy (frame, image)
+            if frame.origin:
+                cvFlip(frame, image)
+            else:
+                cvCopy (frame, image)
 
             # create a grey version of the image
             cvCvtColor (image, grey, CV_BGR2GRAY)
@@ -496,43 +352,36 @@ class WorkerTest():
                 # night mode: only display the points
                 cvSetZero (image)
 
-
-            # cvSetImageROI(grey,small_rect)
-            # cvResetImageROI(grey)
-
             if self.need_to_init:
                 # we want to search all the good points
-                # self.of_points[1] 
-                mask = None
-                found_points = cvGoodFeaturesToTrack(grey, None, None, None, MAX_COUNT, 0.01, 10, mask)
+                self.of_points[1] = cvGoodFeaturesToTrack(grey, None, None, None, MAX_COUNT, 0.01, 10)
 
                 # refine the corner locations
                 cvFindCornerSubPix (
                     grey,
-                    found_points,
+                    self.of_points [1],
                     cvSize (win_size, win_size), cvSize (-1, -1),
                     cvTermCriteria (CV_TERMCRIT_ITER | CV_TERMCRIT_EPS,
                                        20, 0.03))
-            # elif len (self.of_points [0]) > 0:
-            elif len (points_to_find) > 0:
+                                               
+            elif len (self.of_points [0]) > 0:
                 # we have points, so display them
 
                 # calculate the optical flow
-                found_points, status = cvCalcOpticalFlowPyrLK (
+                self.of_points [1], status = cvCalcOpticalFlowPyrLK (
                     prev_grey, grey, prev_pyramid, pyramid,
-                    points_to_find, None, None, 
+                    self.of_points [0], None, None, 
                     cvSize (win_size, win_size), 3,
                     None, None,
                     cvTermCriteria (CV_TERMCRIT_ITER|CV_TERMCRIT_EPS,
                                        20, 0.03),
                     flags)
 
-
                 # initializations
                 point_counter = -1
                 new_points = []
             
-                for the_point in found_points:
+                for the_point in self.of_points [1]:
                     # go trough all the points
 
                     # increment the counter
@@ -555,39 +404,22 @@ class WorkerTest():
                     # this point is a correct point
                     new_points.append (the_point)
                 
-
-                
                     # draw the current point
                     cvCircle (image, cvPointFrom32f(the_point),
                                  1, cvScalar (0, 255, 0, 0),
                                  -1, 8, 0)
 
-                
-                # print str(range(len(found_points)))
-                if len (points_to_find) > 0:
-                    for p in range(len(found_points)):
-                        # print str(points_to_find[p])
-                        # print str(found_points[p])
-                        if points_to_find[p] and found_points[p]:
-                            try:
-                                cvLine(image, cvPoint(points_to_find[p].x, points_to_find[p].y), cvPoint(found_points[p].x, found_points[p].y), CV_RGB(255,0,0))
-                            except:
-                                print 'to: %s   next: %s' % (str(points_to_find[p]),str(found_points[p]))
-                                
-                                
                 # set back the points we keep
-                # self.of_points [1] = new_points
-                found_points = new_points
-        
+                self.of_points [1] = new_points
+            
             if add_remove_pt:
                 # we want to add a point
-                found_points.append (cvPointTo32f (pt))
+                self.of_points [1].append (cvPointTo32f (pt))
 
                 # refine the corner locations
-                # self.of_points [1][-1] = cvFindCornerSubPix (
-                found_points[-1] = cvFindCornerSubPix (
+                self.of_points [1][-1] = cvFindCornerSubPix (
                     grey,
-                    [found_points[-1]],
+                    [self.of_points [1][-1]],
                     cvSize (win_size, win_size), cvSize (-1, -1),
                     cvTermCriteria (CV_TERMCRIT_ITER | CV_TERMCRIT_EPS,
                                        20, 0.03))[0]
@@ -596,21 +428,13 @@ class WorkerTest():
                 add_remove_pt = False
 
             # swapping
-            # prev_grey = grey
-            # prev_pyramid = pyramid
-
-            # swapping the buffers
-            # rather than copying
             prev_grey, grey = grey, prev_grey
             prev_pyramid, pyramid = pyramid, prev_pyramid
-
-            # look for the found points in the next frame
-            points_to_find = found_points
-            # points_to_find, found_points = found_points, points_to_find
+            self.of_points [0], self.of_points [1] = self.of_points [1], self.of_points [0]
             self.need_to_init = False
         
             # we can now display the image
-            cvShowImage (lk, image)
+            cvShowImage ('LkDemo', image)
 
 
     def angle(self, pt0, pt1, pt2 ):
@@ -637,46 +461,30 @@ class WorkerTest():
         ang2 = self.angle(points[2],points[3],points[0])
         # print "opposite angles for this countour: %f and %f" % (ang1, ang2)
         # 1.5 radians ~ 86 deg
-        # if ang1 > 1.4 and ang2 > 1.4:
-        return True
-        # else:
-        #     return False
+        if ang1 > 1.4 and ang2 > 1.4:
+            return True
+        else:
+            return False
 
 
     # check if the distance between all points is roughly the same
     # in other words, a square
-    def equal_length_check( self, points, max_diff=15 ):
+    def equal_length_check( self, points ):
         '''Check to see if the four line segments of a four point poly are roughly the same.'''
         last_l = 0
+        max_diff = 0
         a = [0,1,2,3]
         b = [1,2,3,0]
         for i in range(4):
             # determine the length of the polygon segment
-            # sqrt of delt x ^2 + delt y ^ 2
             l = math.sqrt(abs(points[a[i]].x - points[b[i]].x)**2 + abs(points[a[i]].y - points[b[i]].y)**2)
             if last_l:
                 # compare the delta of the last segment to the current segment
-                # if it's more than X pixels different, then return
-                if (last_l - l) > max_diff:
+                # if it's more than 7 pixels different, then return
+                if (last_l - l) > 3:
                     return False
             last_l = l
         return True
-
-
-    # Get the center coordinate of a square
-    def center_point( self, points ):
-        '''Average the corner coordinates to find the center of the square.'''
-        last_l = 0
-        max_diff = 0
-        a = [0,1,2,3]
-        cx1 = abs(points[0].x + points[2].x) / 2.0
-        cy1 = abs(points[0].y + points[2].y) / 2.0
-
-        cx2 = abs(points[1].x + points[3].x) / 2.0
-        cy2 = abs(points[1].y + points[3].y) / 2.0
-
-        return {'x':(cx1 + cx2) / 2.0, 'y':(cy1 + cy2) / 2.0}
-
 
     # @print_timing
     def find_contours( self, img, my_storage ):
@@ -684,88 +492,44 @@ class WorkerTest():
         # half_sz = cvSize( img.width / 2, img.height / 2 )
 
 
-        # # Code to operate on the separate color channels independantly
-        # red = cvCreateImage( sz, 8, 1 )
-        # green = cvCreateImage( sz, 8, 1 )
-        # blue = cvCreateImage( sz, 8, 1 )
+        img = ipl_to_pil(img)
         # 
-        # # # Split the color planes
-        # # # extract the c-th color plane
-        # channels = [red, green, blue]
-        # # channels[c] = tgray
-        # cvSplit( img, channels[0], channels[1], channels[2], None ) 
-        # last = None
-        # for chan in channels:
-        #     # equalize the grayscale
-        #     # cvEqualizeHist( chan, chan );
-        # 
-        #     
-        # 
-        #     # compute the adaptive threshold
-        #     # tgray = cvCreateImage( sz, 8, 1 );
-        #     # cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY_INV,13,16)
-        #     cvThreshold(chan,chan,50,255,CV_THRESH_BINARY) 
-        # 
-        #     if last:
-        #         cvAnd(last,chan,chan)
-        #     
-        #     last = chan
-        #     
-        #     # test_images.append(tgray)
-        #     # cvShowImage(adapt,gray)
-        # 
-        # cvAnd(channels[0],channels[1],channels[0])
-        # cvAnd(channels[0],channels[2],channels[0])
-        # cvAnd(channels[1],channels[0],channels[1])
-        # cvAnd(channels[2],channels[0],channels[2])
-        # 
-        # cvMerge(channels[0], channels[1], channels[2], None, img)
+        # img = ImageEnhance.Sharpness(img).enhance(1.5)
+        # ImageEnhance.Contrast(            
+        # ImageEnhance.Brightness(gray).enhance(1.2)   
+        # ).enhance(0.75)
+
+        import ImageChops
+        img = ImageChops.invert(img)
+
+        img = pil_to_ipl(img)
 
 
         test_images = []
 
         # create grayscale version of the image
         gray = cvCreateImage( sz, 8, 1 )
-        avg_gray = cvCreateImage( sz, 8, 1 )
-
         cvCvtColor(img ,gray, CV_RGB2GRAY)
 
-        # equalize the grayscale
-        # cvEqualizeHist( gray, gray )
-        # cvSmooth( gray, gray )
-        
-        # if self.last_gray:
-        #     cvAddWeighted(gray,0.5,self.last_gray,0.5,0,avg_gray)                
-        # else:
-        #     avg_gray = cvCloneImage(gray)
-        
-        # self.last_gray = cvCloneImage(gray)
-        
-
+        # cvEqualizeHist( gray, gray );
 
         # compute the adaptive threshold
         tgray = cvCreateImage( sz, 8, 1 );
-        cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,13,16)
-        # cvThreshold(gray,tgray,225,255,CV_THRESH_BINARY) 
-
-        # self.thresh_samples.append(tgray)
-        # agray = cvCreateImage( sz, 8, 1 );
-        # for thresh_sample in self.thresh_samples:
-        #     cvAdd(thresh_sample,agray,agray)
-        # 
-        # self.thresh_samples = self.thresh_samples[-5:5]
-        # test_images.append(agray)
-
-
+        cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,41,16)
         test_images.append(tgray)
-        
-        # cvShowImage(adapt,tgray)
+        cvShowImage(adapt,tgray)
 
-        # # compute the canny edge detector version of the image
+        # take a picture of the thresh and save it
+        if self.take_pic:
+            cvSaveImage('thresh.tif',tgray)
+            self.take_pic = False
+
+        # compute the canny edge detector version of the image
         cgray = cvCreateImage( sz, 8, 1 );
         cvCanny( gray, cgray, self.thresh_bot, self.thresh_top, 3 );
         test_images.append(cgray)
-        # cvShowImage(canny,cgray)
+        cvShowImage(canny,cgray)
+        # cvSaveImage('canny_gray.jpg',cgray)
 
         contour_list = []
 
@@ -788,115 +552,70 @@ class WorkerTest():
                     # of image size + % of image the code will likely take up
                     perim = cvContourPerimeter(contour)
                     # contour must be at least 10 pixels on a side
-                    if perim > 30: #perim > 30 and perim < 300:
+                    if perim > 20: #perim > 30 and perim < 300:
                         # if cvMatchShapes(square,contour,2) < 0.001:
                             # print str(cvMatchShapes(square,contour,2))        
-                        result = cvApproxPoly( contour, sizeof(CvContour), my_storage,
-                            CV_POLY_APPROX_DP, perim*0.005, 0 )
-                        # Make sure the result is roughly a perfect square. Check side length
-                        # and cross angles
-                        # number of verticies == 4
-                        if result.total == 4 and cvCheckContourConvexity(result):
-                            points = result.asarray(CvPoint)
-
-                            # mult = 1.0
-                            # scale the points to the multiplier
-                            # points = [CvPoint(int(point.x*mult),int(point.y*mult)) for point in points]
-                            # gfx_points = [(int(point.x),int(point.y)) for point in points]
-                            # draw all contours
-                            # pygame.gfxdraw.polygon(self.paint_buffer, gfx_points, (255,255,0))
-
-                            # check that the sides are roughly equal in length
-                            if self.equal_length_check(points,int(perim/4.0*0.25)):
-                                # check that opposite angles are roughly 90 degrees
-                                if self.right_angle_check(points):
-                                    center = self.center_point(points)
-                                    #"contour":result
-                                    contour_list.append({"perim":perim,"points":points,"center":center, "seq":result})
+                            result = cvApproxPoly( contour, sizeof(CvContour), my_storage,
+                                CV_POLY_APPROX_DP, perim*0.02, 0 )
+                            if result.total == 4 and cvCheckContourConvexity(result):
+                                contour_list.append(result)
                     try:
                         contour = contour.h_next
                     except AttributeError:
                         contour = None
         return contour_list
 
-
-
     # @print_timing
-    def draw_contours(self, img, square_list, mult=1.0):
+    def draw_contours(self, img, contour_list, mult=1.0):
+        # cpy = cvCloneImage( img );
         max_x = 0
         max_y = 0
-        min_x = int(img.width * mult)
-        min_y = int(img.height * mult)
-        # squares = False
-        bounds = ()
-        # shape = []
+        min_x = img.width
+        min_y = img.height
+        squares = False
+        bounds = []
+        for contour in contour_list:
+            # cvDrawContours(cpy,contour,CV_RGB(255,0,0),CV_RGB(0,255,255),0,1)
+            # points = []
+            # perim = cvContourPerimeter(contour)
+            # # if perim > 30 and perim < 300:
+            # result = cvApproxPoly( contour, sizeof(CvContour), storage,
+            #     CV_POLY_APPROX_DP, perim*0.02, 0 )
+            points = contour.asarray(CvPoint)
 
-        circles = []
-        # squares = []
-        poly_lines = []
+            # scale the points to the multiplier
+            points = [CvPoint(int(point.x*mult),int(point.y*mult)) for point in points]
+            gfx_points = [(int(point.x*mult),int(point.y*mult)) for point in points]
+            # check that the sides are roughly equal in length
+            if self.equal_length_check(points):
+                # check that opposite angles are roughly 90 degrees
+                if self.right_angle_check(points):
+                    # if there are any squares at all, mark as true
+                    squares = squares or True
+                    # find the outer extremes for a bounding box
+                    for pt in points:
+                        max_x = max(max_x,pt.x) 
+                        max_y = max(max_y,pt.y)
+                        min_x = min(min_x,pt.x)
+                        min_y = min(min_y,pt.y)
 
-        distance_ratio = 0.76
-        max_perim = 40
-        max_square = None
-
-        p_mat = None
-
-        for square in square_list:
-            circles.append(Circle(int(square['center']['x']), int(square['center']['y']), 10))
-            
-            if square['perim'] > max_perim:
-                max_perim = square['perim']
-                max_square = square
-
-        if max_square:
-            size = max_square['perim'] / 4.0
-            window_size = int(math.sqrt((2*size**2)) / 2.0)            
-
-            # reorder the points to maintain a consistent orientation
-            # in this case, reorders the points from top to bottom (y axis)
-            # then the top two are sorted to be left than right, the bottom two
-            # are sorted to bt right then left. This creates a closed path
-            # of top left, top right, bottom right, bottom left
-            pts = sorted(max_square['points'],lambda x,y:x.y - y.y)
-
-            top = pts[0:2]
-            bot = pts[2:4]
-
-            top = sorted(top, lambda x,y:x.x - y.x)
-            bot = sorted(bot, lambda x,y:y.x - x.x)
-            source_points = top+bot
-
-            # the projected square is a perfect square surrounding the center point. It's created of 
-            # equal length sides that are the perimeter / 4
-            new_square_top_left = cvPoint(int(max_square['center']['x'] - size / 2.0), int(max_square['center']['y'] - size / 2.0))
-            dest_points = [new_square_top_left,cvPoint(new_square_top_left.x + size, new_square_top_left.y),cvPoint(new_square_top_left.x + size, new_square_top_left.y + size), cvPoint(new_square_top_left.x, new_square_top_left.y + size)]            
-            # the outer bounds of the newly remapped square image
-            bounds = (dest_points[0].x,dest_points[0].y,int(size+0.5),int(size+0.5))
-
-            # compute distortion matrix
-            pt_array = CvPoint2D32f * 4
-            p_mat = cvCreateMat(3, 3, CV_32F)
-            p_src = pt_array(*((p.x, p.y) for p in source_points))
-            p_dst = pt_array(*((p.x, p.y) for p in dest_points))
-            
-            cvGetPerspectiveTransform(p_src, p_dst, p_mat)
-
-        try:
-            for circle in self.last_circles:
-                pygame.gfxdraw.circle(self.paint_buffer, circle.x, circle.y, circle.r, (0,0,0))
-            self.last_circles = []
-        except AttributeError:
-            self.last_circles = []
-
-
-        if square_list:
-            for circle in circles:
-                pygame.gfxdraw.circle(self.paint_buffer, circle.x, circle.y, circle.r, (128,255,255))
-
-            self.last_circles = [x for x in circles]
-
+                    pygame.gfxdraw.polygon(self.paint_buffer, gfx_points, (255,255,0))
+                    # cvPolyLine( img, [points], 1, CV_RGB(0,255,255), 1, CV_AA, 0 )
+        if squares:
+            bounds = [min_x,min_y,max_x-min_x,max_y-min_y]
+            # cvPoint(min_x,min_y),cvPoint(max_x,min_y),cvPoint(max_x,max_y),cvPoint(min_x,max_y)]
+            # print '''x:%d y:%d height:%d width:%d''' % (min_x,min_y,max_x-min_x,max_y-min_y)
+            # cvPolyLine( img, [bounds], 1, CV_RGB(255,255,0), 3, CV_AA, 0 )
         
-        return bounds,p_mat
+        #subimg = cvGetSubRect(cpy, None, cvRect(0,0,100,100))
+        # subimg = cvGetSubRect(cpy, None, cvRect(0,0,100,100))
+        
+        #cvShowImage(test,subimg)
+
+        # cvSaveImage( 'test.jpg', img)
+        return squares, bounds
+        #cvRect(min_x,min_y,max_x-min_x,max_y-min_y)
+
 
 def down_sample(oimg,multiple):
     '''Use the cvPyr algorithm and down sample an image to 1/2.'''
@@ -924,56 +643,38 @@ def main():
     # os.environ['SDL_VIDEODRIVER'] = 'windib'
 
     parser = OptionParser(usage="""\
-    Detect SnapMyinfo QRcodes in a live video stream
+    Detect squares with a threshold of X
 
-    Usage: %prog [options] camera_index
+    Usage: %prog [options] msgfile
     """)
-    # parser.add_option('-d', '--directory',
-    #                   type='string', action='store',
-    #                   help="""Unpack the MIME message into the named
-    #                   directory, which will be created if it doesn't already
-    #                   exist.""")
+    parser.add_option('-d', '--directory',
+                      type='string', action='store',
+                      help="""Unpack the MIME message into the named
+                      directory, which will be created if it doesn't already
+                      exist.""")
     opts, args = parser.parse_args()
 
-    pg_size = (640,480)
+    pg_size = (1600,1200)
 
     worker = WorkerTest()
 
-    cvWindows = []
-
-    # cvNamedWindow(lk, CV_WINDOW_AUTOSIZE)
-    # cvNamedWindow(canny, CV_WINDOW_AUTOSIZE)
+    # cvNamedWindow('LkDemo', CV_WINDOW_AUTOSIZE)
+    cvNamedWindow(canny, CV_WINDOW_AUTOSIZE)
     cvNamedWindow(adapt, CV_WINDOW_AUTOSIZE)
-    cvNamedWindow(sub_win, CV_WINDOW_AUTOSIZE)
-
     names =  [args[0]]
     name = names[0]
     #for name in names:
+      
+    capture = cvCreateCameraCapture( int(name) )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, pg_size[0] )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, pg_size[1] )
+    cvSetCaptureProperty( capture, CV_CAP_PROP_FPS, 10 )
+    worker.frame_buffer = cvQueryFrame( capture )
 
-    take_sequence = False
-    seq_count = 10
-    seq_num = 0
-    sequence = []
+    # worker_oflow = threading.Thread(target=worker.oflow_points)
+    # worker_oflow.start()
 
-    synth = False
-    synth_image = []
-    if synth:
-        for i in range(seq_count):
-            synth_image.append(cvLoadImage('''image_%.2d.jpg''' % i))
-        o_width = pg_size[0]
-        o_height = pg_size[1]
-        worker.frame_buffer = cvCloneImage(synth_image[0])
-    else:
-        capture = cvCreateCameraCapture( int(name) )
-        cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, pg_size[0] )
-        cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, pg_size[1] )
-        # cvSetCaptureProperty( capture, CV_CAP_PROP_FPS, 10 )
-        worker.frame_buffer = cvQueryFrame( capture )
-
-        # worker_oflow = threading.Thread(target=worker.oflow_points)
-        # worker_oflow.start()
-
-        (o_width,o_height) = [cvGetCaptureProperty(capture, prop) for prop in [CV_CAP_PROP_FRAME_WIDTH,CV_CAP_PROP_FRAME_HEIGHT]]
+    (o_width,o_height) = [cvGetCaptureProperty(capture, prop) for prop in [CV_CAP_PROP_FRAME_WIDTH,CV_CAP_PROP_FRAME_HEIGHT]]
 
     diff = 0
     # if o_height == 1200:
@@ -1001,6 +702,9 @@ def main():
 
     print "%d x %d" % (width,height)
 
+    
+    # Image.new('RGBA',(int(width),int(height)),(0,0,0,255))
+
     # scan size is % of the height
     scan_size = 0.25
     # display square is a % of the scan size
@@ -1017,15 +721,16 @@ def main():
     both_y = int(0.85 * o_height - int(scan_dim / 2.0))
 
 
-    pg_display = pygame.display.set_mode( pg_size, 0) 
-    # pg_display = pygame.display.set_mode( pg_size, pygame.HWSURFACE|pygame.DOUBLEBUF|pygame.FULLSCREEN )
+
+
+    pg_display = pygame.display.set_mode( pg_size, 0 )
 
     worker.paint_buffer = pygame.Surface(pg_size).convert()
     # black is transparent
     worker.paint_buffer.set_colorkey((0,0,0))
     
     # set the window name
-    pygame.display.set_caption('Live Detector') 
+    pygame.display.set_caption('SnapCode Detector') 
     # pg_clock = pygame.time.Clock()
     # pg_processClock = pygame.time.Clock()
 
@@ -1043,6 +748,16 @@ def main():
 
     # connect_thread = threading.Thread(target=worker.connect)
     # connect_thread.start()    
+    
+
+    # old video saving code
+    # output_name = 'output_%s.mpg' % (name)
+    # print str(cvGetCaptureProperty(capture,CV_CAP_PROP_FOURCC) )
+    # result_vid = cvCreateVideoWriter( output_name, MSMPEG4V3, 30.0, cvSize(int(width),int(height)) )
+    # result_vid = cvCreateVideoWriter(output_name, FAAD, 30.0, cvSize(640,360) )
+
+    # initial points for graphical triangle
+    points = [{'pos':[0,0],'h_i':10,'v_i':10},{'pos':[100,100],'h_i':10,'v_i':10},{'pos':[100,200],'h_i':10,'v_i':10}]
 
     running = True
     while running:
@@ -1051,72 +766,60 @@ def main():
         for e in events:
             if e.type == QUIT or (e.type == KEYDOWN and e.key == K_ESCAPE):
                 running = False
-
-            elif e.type == KEYDOWN and e.unicode == u'x':
-                if worker.avg_mode:
-                    worker.avg_mode = False
-                else:
-                    worker.avg_mode = True
-                print "Averaging mode: %s" % (str(worker.avg_mode))
-            elif e.type == KEYDOWN and e.unicode == u'p':
-                take_sequence = True
-                print "Take Sequence"
-            # elif e.type == KEYDOWN and e.unicode == u'r':
-            #     worker.thresh_top -= 10
-            #     print str(worker.thresh_top)
-            # elif e.type == KEYDOWN and e.unicode == u'b':
-            #     worker.thresh_bot += 10
-            #     print str(worker.thresh_bot)
-            # elif e.type == KEYDOWN and e.unicode == u'v':
-            #     worker.thresh_bot -= 10
-            #     print str(worker.thresh_bot)
+            elif e.type == KEYDOWN and e.unicode == u't':
+                worker.thresh_top += 10
+                print str(worker.thresh_top)
+            elif e.type == KEYDOWN and e.unicode == u'r':
+                worker.thresh_top -= 10
+                print str(worker.thresh_top)
+            elif e.type == KEYDOWN and e.unicode == u'b':
+                worker.thresh_bot += 10
+                print str(worker.thresh_bot)
+            elif e.type == KEYDOWN and e.unicode == u'v':
+                worker.thresh_bot -= 10
+                print str(worker.thresh_bot)
             elif e.type == KEYDOWN and e.unicode == u'l':
                 worker.need_to_init = True
+            elif e.type == KEYDOWN and e.unicode == u'p':
+                worker.take_pic = True
+
+
             # else:
             #     print str(e)
             
         # copy the capture device frame to the worker frame_buffer
-        if synth:
-            worker.frame_buffer = cvCloneImage(synth_image[seq_num])
-            seq_num += 1
-            if seq_num >= seq_count:
-                seq_num = 0
-            time.sleep(0.25)
-            
-        else:
-            worker.frame_buffer = cvQueryFrame( capture )
+        worker.frame_buffer = cvQueryFrame( capture )
 
-        # no data in the frame buffer means we're done
         if not worker.frame_buffer:
             break
 
-
-        if take_sequence:
-            print "Snap Frame"
-            sequence.append(cvCloneImage(worker.frame_buffer))
-            
-            if len(sequence) == seq_count:
-                for frame in sequence:
-                    cvSaveImage(('''image_%.2d.jpg''' % sequence.index(frame)), frame)
-                take_sequence = False
-                sequence = []
-            
         # convert the frame_buffer into a numpy array
         cpy = cvCloneImage(worker.frame_buffer)
-        # the surface RGB values are not the same as the cameras
-        # this means that two of the channels have to be swapped in the numpy
-        # array before being blit'ted ont the array
         surf_dat = cpy.as_numpy_array().transpose(1,0,2)[...,...,::-1] #,0,2) # ipl_to_numpy(disp_img
-        
         # blit_array zaps anything on the surface and completely replaces it with the array, much
         # faster than converting the bufer to a surface and bliting it
         surfarray.blit_array(pg_display,surf_dat)
 
-        # blit the paint buffer onto the surface. With a chromakey, all black values will show through
+        for point in points:
+            point['pos'][0] = point['pos'][0] + point['h_i']
+            if point['pos'][0] > pg_size[0] or point['pos'][0] <= 0:
+                point['h_i'] = point['h_i'] * -1
+            point['pos'][1] = point['pos'][1] + point['v_i']
+            if point['pos'][1] > pg_size[1] or point['pos'][1] <= 0:
+                point['v_i'] = point['v_i'] * -1
+
+        pointsInHat = [ points[0]['pos'], points[1]['pos'], points[2]['pos'] ]
+
+        gfxdraw.filled_polygon(pg_display, pointsInHat, Color("red"))
+        gfxdraw.aapolygon(pg_display, pointsInHat, Color("black"))
+
+        draw_rect = pygame.Rect(left_x, both_y, scan_dim, scan_dim)
+        gfxdraw.rectangle(pg_display, draw_rect, Color("blue"))
+
         # pg_display.blit(pygame.transform.flip(worker.paint_buffer, True, False),(0,0))
         pg_display.blit(worker.paint_buffer,(0,0))
 
-        # flip() actually displays the surface
+        
         pygame.display.flip()
 
     print worker.stop()
@@ -1124,7 +827,7 @@ def main():
     #cvReleaseMemStorage( storage )
     # cvDestroyWindow(wndname)
     #cvDestroyWindow(adapt)
-    # cvDestroyWindow(canny)
+    cvDestroyWindow(canny)
     #cvDestroyWindow(test)
 
     print 'exiting'

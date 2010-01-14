@@ -1,0 +1,1 @@
+/usr/share/enerd/snapmyinfo/app/models/SnapCommand.py
