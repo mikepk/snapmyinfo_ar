@@ -37,6 +37,9 @@ from pygame import gfxdraw, image, Rect, transform
 from pygame import surfarray
 import numpy
 
+
+from square_detector import SquareDetector
+
 pygame.init()
 # pygame.camera.init()
 
@@ -55,6 +58,7 @@ zone1 = "Left User Card"
 zone2 = "Right User Card"
 paint_name = "Paint Display"
 sub_win = "Sub Window"
+small_win = "Half Size"
 
 def print_timing(func):
     def wrapper(*arg):
@@ -100,6 +104,10 @@ class WorkerTest():
     def __init__(self):
         self.frame_buffer = None
         self.paint_buffer = None
+
+        self.small_frame = None
+        self.oflow_test = []
+
         # self.roi_buffer = []
         # self.of_points_buffer = []
 
@@ -113,7 +121,8 @@ class WorkerTest():
         self.visible_user = {}
 
         self.display_scale = 1.0
-        self.src = SnapRemoteCard()
+        # self.src = SnapRemoteCard()
+        
         
         self.thresh_bot = 230
         self.thresh_top = 340        
@@ -124,6 +133,10 @@ class WorkerTest():
         self.last_gray = None
         
         self.bounds = [100,100,300,300]
+        
+        self.sd = SquareDetector()
+
+        self.sd.init_image_buffers((int(640/4.0),int(480/4.0)))
         
     def stop(self):
         '''Kill the worker threads?'''
@@ -160,49 +173,78 @@ class WorkerTest():
     
     def detect(self, rect, window_name):
         '''Detect and decode barcodes in the image. If rect is passed, only process that subregion of the image.'''
-        self.zonecolor[window_name] = CV_RGB(255,255,255)
-        self.decoded[window_name] = False
-        self.decode_window[window_name] = 0
-        
-        # screen_font = ImageFont.truetype("arial.ttf", 24)
-        # data_font = ImageFont.truetype("arial.ttf", 14)
-        qc = qrcode()
-        storage = cvCreateMemStorage(0)
-        # draw = ImageDraw.Draw(self.paint_buffer)
-        half_height = int(rect.height / 2.0)
-        half_width = int(rect.width / 2.0)
-        top_left = cvRect(rect.x,rect.y,half_width,half_height)
-        top_right = cvRect(half_width,rect.y,half_width,half_height)
+        # self.zonecolor[window_name] = CV_RGB(255,255,255)
+        # self.decoded[window_name] = False
+        # self.decode_window[window_name] = 0
 
-        bot_left = cvRect(rect.x,half_height,half_width,half_height)
-        bot_right = cvRect(half_width,half_height,half_width,half_height)
+        # qc = qrcode()
+        # storage = cvCreateMemStorage(0)
+
+        # half_height = int(rect.height / 2.0)
+        # half_width = int(rect.width / 2.0)
+        # top_left = cvRect(rect.x,rect.y,half_width,half_height)
+        # top_right = cvRect(half_width,rect.y,half_width,half_height)
+        # 
+        # bot_left = cvRect(rect.x,half_height,half_width,half_height)
+        # bot_right = cvRect(half_width,half_height,half_width,half_height)
 
 
         # cpy = cvCloneImage(self.frame_buffer)
         orig_size = cvGetSize(self.frame_buffer)
+        small_size = cvGetSize(self.small_frame)
 
-        rects = [rect] #top_left,top_right,bot_left,bot_right]
-        rect_idx = 0
-        
+        rects = [rect]        
         last_frame = []
         last_rect = None
+        
+        warped = cvCreateImage( orig_size, 8, 3)
+        cpy = cvCreateImage( small_size, 8, 3)
+        print "hey!"
 
         while self.running:
             # sleep to avoid monopolizing CPU
-            # time.sleep(2)
+            time.sleep(0.2)
+
+            # cpy = cvCloneImage(self.small_frame)
             
-            #if self.frame_buffer:
-            rect = rects[rect_idx]
-            rect_idx += 1
-            if rect_idx > len(rects)-1:
-                rect_idx=0
-            cpy = cvCloneImage(self.frame_buffer)
-            scale = 1.0
-            # if orig_size.width > 640:
-            #     small_image =  cvCreateImage( cvSize(orig_size.width / 2, orig_size.height/2), 8, 3 )
-            #     cvPyrDown( cpy, small_image, CV_GAUSSIAN_5x5 );
-            #     cpy = small_image
-            #     scale = 2.0
+            cvCopy(self.small_frame,cpy)
+            cvCopy(self.frame_buffer,warped)
+            # orig_copy = cvCloneImage(self.frame_buffer)
+            
+
+            if last_rect:
+                gfxdraw.rectangle(self.paint_buffer, last_rect, Color(0,0,0))
+                last_rect = None
+
+            squares = self.sd.find_squares(cpy)
+            if squares:
+                bounds = self.sd.get_bounding_box(squares,4.0,0.15)
+                if bounds:
+                    draw_rect = pygame.Rect(bounds[0],bounds[1],bounds[2],bounds[3])
+                    last_rect = draw_rect
+                    gfxdraw.rectangle(self.paint_buffer, draw_rect, Color("red"))
+
+
+
+                    # if p_mat:
+                    #     cvWarpPerspective(small,warped,p_mat)
+
+                    small = cvGetSubRect(warped, None, bounds)
+                    cvShowImage(sub_win,small)
+
+
+            # #if self.frame_buffer:
+            # rect = rects[rect_idx]
+            # rect_idx += 1
+            # if rect_idx > len(rects)-1:
+            #     rect_idx=0
+
+            # scale = 4.0
+            # # if orig_size.width > 640:
+            # #     small_image =  cvCreateImage( cvSize(orig_size.width / 2, orig_size.height/2), 8, 3 )
+            # #     cvPyrDown( cpy, small_image, CV_GAUSSIAN_5x5 );
+            # #     cpy = small_image
+            # #     scale = 2.0
 
             # cpy = cvGetSubRect(cpy, None, rect)
             # cvFlip(cpy,cpy,1)
@@ -216,203 +258,201 @@ class WorkerTest():
             
             
             
-            #cvSetImageROI(cpy,rect)
-            # work = cvGetSubRect(cpy, None, rect)
-            # work = cvCloneImage(self.frame_buffer)
-            if not self.frame_buffer:
-                self.running = False
-                break
-            cnt = self.find_contours(cpy, storage)
-            
-            # has_code, bounds = self.draw_contours(cpy, cnt, scale)
-            bounds, p_mat = self.draw_contours(cpy, cnt, scale)
-            # bounds = None
-            has_code = False
-
-
-            if bounds:
-                # pass
-                self.lock.acquire()
-                self.bounds = bounds
-                self.lock.release()
-                if bounds[2] > 25 and bounds[3] > 25:
-                    self.need_to_init = True
-                if last_rect:
-                    gfxdraw.rectangle(self.paint_buffer, last_rect, (0,0,0))                    
-                draw_rect = pygame.Rect(bounds[0],bounds[1],bounds[2],bounds[3])
-                
-                # gfxdraw.rectangle(self.paint_buffer, draw_rect, Color("red"))
-                # last_rect = draw_rect
-
-
-            if has_code and self.decoded[window_name]:
-                self.decode_window[window_name] = 0
-            elif has_code and not self.decoded[window_name]:
-                self.zonecolor[window_name] = CV_RGB(255,255,0)
-                # draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-20)), "Scanning...", font=screen_font, fill=(200,200,0,0))
-                
-            else:
-                if self.decode_window[window_name] > 6:
-                    # draw.rectangle([int(self.display_scale*rect.x-100), int(self.display_scale * rect.y-100), int(self.display_scale * rect.x+100+rect.width), int(self.display_scale * rect.y+100+rect.height)], fill=(0,0,0,255))
-                    self.zonecolor[window_name] = CV_RGB(255,255,255)
-                    self.decode_window[window_name] = 0
-                    self.decoded[window_name] = False
-                    try:
-                        if self.visible_user[window_name]:
-                            self.lock.acquire()
-                            del self.visible_user[window_name]
-                            self.lock.release()
-                    except KeyError:
-                        pass
-                        
-                else:
-                    self.decode_window[window_name] += 1
-
-                    # cpy = cvGetSubRect(cpy, None, rect)
-                    # cvFlip(cpy,cpy,1)
-
-            if last_rect:
-                gfxdraw.rectangle(self.paint_buffer, last_rect, (0,0,0))
-                last_rect = None
-
-
-
-            warped = cvCreateImage( (cpy.width,cpy.height), 8, 3)
-            
-            if p_mat:
-                cvWarpPerspective(cpy,warped,p_mat)
-
-            cvShowImage(adapt,warped)
-
-            out_of_bounds = False
-            if bounds:
-                if bounds[0] < 0 or bounds[1] < 0:
-                    out_of_bounds = True
-                if bounds[0] + bounds[2] > warped.width:
-                    out_of_bounds = True
-                if bounds[1] + bounds[3] > warped.height:
-                    out_of_bounds = True
-            
-
-            if bounds and not out_of_bounds:
-                work = cvGetImage(cvGetSubRect(warped, None, bounds)) # cvGetImage(cpy)
-
-                # try:
-                #     self.last_frame
-                # except AttributeError:
-                #     self.last_frame = None
-                #     self.second_to_last_frame = None
-                # 
-                # if self.last_frame:
-                #     cvAdd(work,self.last_frame,work)
-                # self.last_frame = work
-                sz = cvSize( work.width, work.height )
-
-
-                # # create grayscale version of the image
-                # gray = cvCreateImage( sz, 8, 1 )
-                # cvCvtColor(work ,gray, CV_RGB2GRAY)
-                # 
-                # # equalize the grayscale
-                # cvEqualizeHist( gray, gray );
-                # 
-                # cvThreshold(gray,gray,128,255,CV_THRESH_BINARY) 
-                cvFlip(work,work,1)
-
-                wd = 200
-                scale = (wd / 1.0) / sz.width
-                ht = int(sz.height * scale + 0.5)
-
-                big_work = cvCreateImage((wd,ht),8,3)
-                # new_work = cvCreateImage((wd,ht),8,3)
-                cvResize(work,big_work,CV_INTER_CUBIC)
-
-                if last_frame and self.avg_mode:
-                    # cvAdd(big_work,last_frame,big_work)
-                    cvZero(new_work) # = cvCloneImage(big_work)
-                    for i in range(len(last_frame)):
-                        cvAddWeighted(last_frame[i],1.0/(len(last_frame)),new_work,1.0,0,new_work)
-                last_frame.append(big_work)
-                last_frame = last_frame[-5:]
-
-                if not self.avg_mode:
-                    new_work = cvCloneImage(big_work)
-                    # new_work = cvCreateImage((wd,ht),8,1)
-                    # cvCvtColor(new_work, big_work, CV_GRAY2RGB)
-
-                cvShowImage(sub_win,new_work)
-                
-                    
-                # Turn the image to a PIL image and sharpen for decode
-                decode_img = ipl_to_pil(new_work)
-
-                # # decode_img = ImageOps.equalize(decode_img)
-                # decode_img = ImageEnhance.Sharpness(decode_img).enhance(1.5)
-                # decode_img = ImageOps.autocontrast(decode_img)
-                # 
-                # # 
-                # 
-                # # ImageEnhance.Contrast(            
-                # # ImageEnhance.Brightness(decode_img).enhance(1.2)   
-                # # ).enhance(0.75)
-                # 
-                # cvShowImage(sub_win,pil_to_ipl(decode_img))
-                
-                data = qc.decode(decode_img)
-                if data != "NO BARCODE":
-                    color = (0,255,0)
-                    # print data
-                else:
-                    color = (255,0,0)
-                        
-                # pass
-                self.lock.acquire()
-                self.bounds = bounds
-                self.lock.release()
-                # if bounds[2] > 25 and bounds[3] > 25:
-                #     self.need_to_init = True
-                draw_rect = pygame.Rect(bounds[0],bounds[1],bounds[2],bounds[3])
-                gfxdraw.rectangle(self.paint_buffer, draw_rect, color)
-                last_rect = draw_rect
-                
-            
-            
-            # if has_code and not self.decoded[window_name]:
-            #     data = qc.decode(decode_img)
-            #     if data != "NO BARCODE":
-            #         # code decoded
-            #         self.zonecolor[window_name] = CV_RGB(0,255,0)
-            #         self.decoded[window_name] = True
-            #         self.decode_window[window_name] = 0
+            # #cvSetImageROI(cpy,rect)
+            # # work = cvGetSubRect(cpy, None, rect)
+            # # work = cvCloneImage(self.frame_buffer)
+            # if not self.frame_buffer:
+            #     self.running = False
+            #     break
+            # cnt = self.find_contours(cpy, storage)
             # 
-            #         match = re.search(r'\/([^\/]*)$',data)
-            #         if match:
-            #             code = match.group(1)
-            #             #print str(code)
-            #             user_card = self.src.get_card(code)
-            #             if user_card:
-            #                 # draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-40)), user_card['full_name'], font=data_font, fill=(0,200,0,0))
-            #                 print '''%s decoded %s''' % (window_name,user_card['full_name'])
+            # # has_code, bounds = self.draw_contours(cpy, cnt, scale)
+            # bounds, p_mat = self.draw_contours(cpy, cnt, scale)
+            # # bounds = None
+            # has_code = False
+            # 
+            # 
+            # if bounds:
+            #     # pass
+            #     self.lock.acquire()
+            #     self.bounds = bounds
+            #     self.lock.release()
+            #     # if bounds[2] > 25 and bounds[3] > 25:
+            #     #     self.need_to_init = True
+            #     if last_rect:
+            #         gfxdraw.rectangle(self.paint_buffer, last_rect, (0,0,0))                    
+            #     draw_rect = pygame.Rect(bounds[0],bounds[1],bounds[2],bounds[3])
+            #     
+            #     # gfxdraw.rectangle(self.paint_buffer, draw_rect, Color("red"))
+            #     # last_rect = draw_rect
+            # 
+            # 
+            # if has_code and self.decoded[window_name]:
+            #     self.decode_window[window_name] = 0
+            # elif has_code and not self.decoded[window_name]:
+            #     self.zonecolor[window_name] = CV_RGB(255,255,0)
+            #     # draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-20)), "Scanning...", font=screen_font, fill=(200,200,0,0))
+            #     
+            # else:
+            #     if self.decode_window[window_name] > 6:
+            #         # draw.rectangle([int(self.display_scale*rect.x-100), int(self.display_scale * rect.y-100), int(self.display_scale * rect.x+100+rect.width), int(self.display_scale * rect.y+100+rect.height)], fill=(0,0,0,255))
+            #         self.zonecolor[window_name] = CV_RGB(255,255,255)
+            #         self.decode_window[window_name] = 0
+            #         self.decoded[window_name] = False
+            #         try:
+            #             if self.visible_user[window_name]:
             #                 self.lock.acquire()
-            #                 self.visible_user[window_name] = user_card['user_id']
+            #                 del self.visible_user[window_name]
             #                 self.lock.release()
-            #             else:
-            #                 self.zonecolor[window_name] = CV_RGB(180,0,0)
-            #                 print '''%s : %s''' % (window_name,'No card found')
-            #         else:
-            #             self.zonecolor[window_name] = CV_RGB(180,0,0)
-            #             print '''QR code decoded, is it not a SnapMyInfo code?'''
+            #         except KeyError:
+            #             pass
+            #             
             #     else:
-            #         pass
-            #         # print '''%s failed to decode''' % (window_name)
-        
-            # cvShowImage(window_name, pil_to_ipl(decode_img))
-            cvClearMemStorage( storage )
-            # (window_name, work) #pil_to_ipl(decode_img))
+            #         self.decode_window[window_name] += 1
+            # 
+            #         # cpy = cvGetSubRect(cpy, None, rect)
+            #         # cvFlip(cpy,cpy,1)
+            # 
+            # if last_rect:
+            #     gfxdraw.rectangle(self.paint_buffer, last_rect, (0,0,0))
+            #     last_rect = None
+            # 
+            # if p_mat:
+            #     cvWarpPerspective(cpy,warped,p_mat)
+            # 
+            # # cvShowImage(adapt,warped)
+            # 
+            # out_of_bounds = False
+            # if bounds:
+            #     if bounds[0] < 0 or bounds[1] < 0:
+            #         out_of_bounds = True
+            #     if bounds[0] + bounds[2] > warped.width:
+            #         out_of_bounds = True
+            #     if bounds[1] + bounds[3] > warped.height:
+            #         out_of_bounds = True
+            # 
+            # 
+            # if bounds and not out_of_bounds:
+            #     work = cvGetImage(cvGetSubRect(warped, None, bounds)) # cvGetImage(cpy)
+            # 
+            #     # try:
+            #     #     self.last_frame
+            #     # except AttributeError:
+            #     #     self.last_frame = None
+            #     #     self.second_to_last_frame = None
+            #     # 
+            #     # if self.last_frame:
+            #     #     cvAdd(work,self.last_frame,work)
+            #     # self.last_frame = work
+            #     sz = cvSize( work.width, work.height )
+            # 
+            # 
+            #     # # create grayscale version of the image
+            #     # gray = cvCreateImage( sz, 8, 1 )
+            #     # cvCvtColor(work ,gray, CV_RGB2GRAY)
+            #     # 
+            #     # # equalize the grayscale
+            #     # cvEqualizeHist( gray, gray );
+            #     # 
+            #     # cvThreshold(gray,gray,128,255,CV_THRESH_BINARY) 
+            #  
+            # 
+            #     wd = 200
+            #     scale = (wd / 1.0) / sz.width
+            #     ht = int(sz.height * scale + 0.5)
+            # 
+            #     big_work = cvCreateImage((wd,ht),8,3)
+            #     # new_work = cvCreateImage((wd,ht),8,3)
+            #     cvResize(work,big_work,CV_INTER_CUBIC)
+            #     cvFlip(big_work,big_work,1)
+            #     
+            #     if last_frame and self.avg_mode:
+            #         # cvAdd(big_work,last_frame,big_work)
+            #         cvZero(new_work) # = cvCloneImage(big_work)
+            #         for i in range(len(last_frame)):
+            #             cvAddWeighted(last_frame[i],1.0/(len(last_frame)),new_work,1.0,0,new_work)
+            #     last_frame.append(big_work)
+            #     last_frame = last_frame[-5:]
+            # 
+            #     if not self.avg_mode:
+            #         new_work = cvCloneImage(big_work)
+            #         # new_work = cvCreateImage((wd,ht),8,1)
+            #         # cvCvtColor(new_work, big_work, CV_GRAY2RGB)
+            # 
+            #     cvShowImage(sub_win,new_work)
+            #     
+            #         
+            #     # Turn the image to a PIL image and sharpen for decode
+            #     decode_img = ipl_to_pil(new_work)
+            # 
+            #     # # decode_img = ImageOps.equalize(decode_img)
+            #     # decode_img = ImageEnhance.Sharpness(decode_img).enhance(1.5)
+            #     # decode_img = ImageOps.autocontrast(decode_img)
+            #     # 
+            #     # # 
+            #     # 
+            #     # # ImageEnhance.Contrast(            
+            #     # # ImageEnhance.Brightness(decode_img).enhance(1.2)   
+            #     # # ).enhance(0.75)
+            #     # 
+            #     # cvShowImage(sub_win,pil_to_ipl(decode_img))
+            #     
+            #     # data = qc.decode(decode_img)
+            #     # if data != "NO BARCODE":
+            #     #     color = (0,255,0)
+            #     #     # print data
+            #     # else:
+            #     #     color = (255,0,0)
+            #     color = (199,199,199)
+            #             
+            #     # pass
+            #     self.lock.acquire()
+            #     self.bounds = bounds
+            #     self.lock.release()
+            #     # if bounds[2] > 25 and bounds[3] > 25:
+            #     #     self.need_to_init = True
+            #     draw_rect = pygame.Rect(bounds[0],bounds[1],bounds[2],bounds[3])
+            #     gfxdraw.rectangle(self.paint_buffer, draw_rect, color)
+            #     last_rect = draw_rect
+            #     
+            # 
+            # 
+            # # if has_code and not self.decoded[window_name]:
+            # #     data = qc.decode(decode_img)
+            # #     if data != "NO BARCODE":
+            # #         # code decoded
+            # #         self.zonecolor[window_name] = CV_RGB(0,255,0)
+            # #         self.decoded[window_name] = True
+            # #         self.decode_window[window_name] = 0
+            # # 
+            # #         match = re.search(r'\/([^\/]*)$',data)
+            # #         if match:
+            # #             code = match.group(1)
+            # #             #print str(code)
+            # #             user_card = self.src.get_card(code)
+            # #             if user_card:
+            # #                 # draw.text((int(self.display_scale*rect.x), int(self.display_scale * rect.y-40)), user_card['full_name'], font=data_font, fill=(0,200,0,0))
+            # #                 print '''%s decoded %s''' % (window_name,user_card['full_name'])
+            # #                 self.lock.acquire()
+            # #                 self.visible_user[window_name] = user_card['user_id']
+            # #                 self.lock.release()
+            # #             else:
+            # #                 self.zonecolor[window_name] = CV_RGB(180,0,0)
+            # #                 print '''%s : %s''' % (window_name,'No card found')
+            # #         else:
+            # #             self.zonecolor[window_name] = CV_RGB(180,0,0)
+            # #             print '''QR code decoded, is it not a SnapMyInfo code?'''
+            # #     else:
+            # #         pass
+            # #         # print '''%s failed to decode''' % (window_name)
+            #         
+            # # cvShowImage(window_name, pil_to_ipl(decode_img))
+            # cvClearMemStorage( storage )
+            # # (window_name, work) #pil_to_ipl(decode_img))
 
     def oflow_points(self):
         '''Adding the lkdemo code, to track optical flow points'''
-        self.need_to_init = True
+        self.need_to_init = False
         # self.of_points = [[], []]
 
         points_to_find = []
@@ -433,34 +473,34 @@ class WorkerTest():
         
         while self.running:
             # time.sleep(0.25)
-            frame = cvCloneImage(self.frame_buffer)
+            frame = cvCloneImage(self.small_frame)
             
-            frame = down_sample(frame,1)
-            # # new_width = 960.0
-            # # scale = new_width / self.frame_buffer.width
-            # if not small_rect:
-            self.lock.acquire()
-            small_rect = cvRect(*self.bounds)
-            self.lock.release()
-            # if not mask:
-            #      size = cvGetSize(frame)
-            #      mask = cvCreateImage (cvSize(size.width,size.height), 8, 1)
-            # cvSetZero(mask)
-            self.lock.acquire()
+            # # frame = down_sample(frame,1)
+            # # # new_width = 960.0
+            # # # scale = new_width / self.frame_buffer.width
+            # # if not small_rect:
+            # self.lock.acquire()
+            # small_rect = cvRect(*self.bounds)
+            # self.lock.release()
+            # # if not mask:
+            # #      size = cvGetSize(frame)
+            # #      mask = cvCreateImage (cvSize(size.width,size.height), 8, 1)
+            # # cvSetZero(mask)
+            # self.lock.acquire()
+            # # 
+            # small_bounds = [int(point / 2.0) for point in self.bounds]
+            # # cvFillPoly(mask,[[
+            # # cvPoint(small_bounds[0],small_bounds[1]),
+            # # cvPoint(small_bounds[0]+small_bounds[2],small_bounds[1]),
+            # # cvPoint(small_bounds[0]+small_bounds[2],small_bounds[1]+small_bounds[3]),
+            # # cvPoint(small_bounds[0],small_bounds[1]+small_bounds[3])
+            # # ]],CV_RGB(255,255,255))
             # 
-            small_bounds = [int(point / 2.0) for point in self.bounds]
-            # cvFillPoly(mask,[[
-            # cvPoint(small_bounds[0],small_bounds[1]),
-            # cvPoint(small_bounds[0]+small_bounds[2],small_bounds[1]),
-            # cvPoint(small_bounds[0]+small_bounds[2],small_bounds[1]+small_bounds[3]),
-            # cvPoint(small_bounds[0],small_bounds[1]+small_bounds[3])
-            # ]],CV_RGB(255,255,255))
-
-
-            # cvCvtColor (mymask, mask, CV_BGR2GRAY)
-            # # cvShowImage(adapt,mask)
-            # #small_rect = cvRect(*self.bounds) #int(200),int(200),int(100),int(100))
-            self.lock.release()
+            # 
+            # # cvCvtColor (mymask, mask, CV_BGR2GRAY)
+            # # # cvShowImage(adapt,mask)
+            # # #small_rect = cvRect(*self.bounds) #int(200),int(200),int(100),int(100))
+            # self.lock.release()
             # mask = cvGetArray(mask)
 
             # 
@@ -475,19 +515,20 @@ class WorkerTest():
 
             if image is None:
                 # create the images we need
-                image = cvCreateImage (cvGetSize (frame), 8, 3)
+                sz = cvGetSize (self.small_frame)
+                image = cvCreateImage (sz, 8, 3)
                 image.origin = 0
-                grey = cvCreateImage (cvGetSize (frame), 8, 1)
-                prev_grey = cvCreateImage (cvGetSize (frame), 8, 1)
-                pyramid = cvCreateImage (cvGetSize (frame), 8, 1)
-                prev_pyramid = cvCreateImage (cvGetSize (frame), 8, 1)
+                grey = cvCreateImage (sz, 8, 1)
+                prev_grey = cvCreateImage (sz, 8, 1)
+                pyramid = cvCreateImage (sz, 8, 1)
+                prev_pyramid = cvCreateImage (sz, 8, 1)
                 # self.of_points = [[], []]
 
             # copy the frame, so we can draw on it
             # if frame.origin:
             #     cvFlip(frame, image)
             # else:
-            cvCopy (frame, image)
+            cvCopy (self.small_frame, image)
 
             # create a grey version of the image
             cvCvtColor (image, grey, CV_BGR2GRAY)
@@ -503,16 +544,29 @@ class WorkerTest():
             if self.need_to_init:
                 # we want to search all the good points
                 # self.of_points[1] 
-                mask = None
-                found_points = cvGoodFeaturesToTrack(grey, None, None, None, MAX_COUNT, 0.01, 10, mask)
+                found_points = []
+                for point in self.oflow_test:
+                    found_points.append (cvPointTo32f (point))
 
-                # refine the corner locations
-                cvFindCornerSubPix (
-                    grey,
-                    found_points,
-                    cvSize (win_size, win_size), cvSize (-1, -1),
-                    cvTermCriteria (CV_TERMCRIT_ITER | CV_TERMCRIT_EPS,
-                                       20, 0.03))
+                    # refine the corner locations
+                    # self.of_points [1][-1] = cvFindCornerSubPix (
+                    found_points[-1] = cvFindCornerSubPix (
+                        grey,
+                        [found_points[-1]],
+                        cvSize (win_size, win_size), cvSize (-1, -1),
+                        cvTermCriteria (CV_TERMCRIT_ITER | CV_TERMCRIT_EPS,
+                                           20, 0.03))[0]
+                    
+                # mask = None
+                # found_points = cvGoodFeaturesToTrack(grey, None, None, None, MAX_COUNT, 0.01, 10, mask)
+                # 
+                # # refine the corner locations
+                # cvFindCornerSubPix (
+                #     grey,
+                #     found_points,
+                #     cvSize (win_size, win_size), cvSize (-1, -1),
+                #     cvTermCriteria (CV_TERMCRIT_ITER | CV_TERMCRIT_EPS,
+                #                        20, 0.03))
             # elif len (self.of_points [0]) > 0:
             elif len (points_to_find) > 0:
                 # we have points, so display them
@@ -563,16 +617,16 @@ class WorkerTest():
                                  -1, 8, 0)
 
                 
-                # print str(range(len(found_points)))
-                if len (points_to_find) > 0:
-                    for p in range(len(found_points)):
-                        # print str(points_to_find[p])
-                        # print str(found_points[p])
-                        if points_to_find[p] and found_points[p]:
-                            try:
-                                cvLine(image, cvPoint(points_to_find[p].x, points_to_find[p].y), cvPoint(found_points[p].x, found_points[p].y), CV_RGB(255,0,0))
-                            except:
-                                print 'to: %s   next: %s' % (str(points_to_find[p]),str(found_points[p]))
+                # # print str(range(len(found_points)))
+                # if len (points_to_find) > 0:
+                #     for p in range(len(found_points)):
+                #         # print str(points_to_find[p])
+                #         # print str(found_points[p])
+                #         if points_to_find[p] and found_points[p]:
+                #             try:
+                #                 cvLine(image, cvPoint(points_to_find[p].x, points_to_find[p].y), cvPoint(found_points[p].x, found_points[p].y), CV_RGB(255,0,0))
+                #             except:
+                #                 print 'to: %s   next: %s' % (str(points_to_find[p]),str(found_points[p]))
                                 
                                 
                 # set back the points we keep
@@ -637,10 +691,13 @@ class WorkerTest():
         ang2 = self.angle(points[2],points[3],points[0])
         # print "opposite angles for this countour: %f and %f" % (ang1, ang2)
         # 1.5 radians ~ 86 deg
-        # if ang1 > 1.4 and ang2 > 1.4:
-        return True
-        # else:
-        #     return False
+        # 1.2 radians ~ 70 deg
+        # 1 radian ~ 57 deg
+        # print "angle 1 %f   angle 2 %f" % ((ang1 * 180 / math.pi), (ang2 * 180 / math.pi))
+        if ang1 > 1.1 and ang2 > 1.1:
+            return True
+        else:
+            return False
 
 
     # check if the distance between all points is roughly the same
@@ -656,7 +713,7 @@ class WorkerTest():
             l = math.sqrt(abs(points[a[i]].x - points[b[i]].x)**2 + abs(points[a[i]].y - points[b[i]].y)**2)
             if last_l:
                 # compare the delta of the last segment to the current segment
-                # if it's more than X pixels different, then return
+                # if it's more than max_diff pixels different, then return
                 if (last_l - l) > max_diff:
                     return False
             last_l = l
@@ -726,28 +783,29 @@ class WorkerTest():
 
         # create grayscale version of the image
         gray = cvCreateImage( sz, 8, 1 )
-        avg_gray = cvCreateImage( sz, 8, 1 )
-
         cvCvtColor(img ,gray, CV_RGB2GRAY)
 
         # equalize the grayscale
+
         # cvEqualizeHist( gray, gray )
         # cvSmooth( gray, gray )
-        
+
+        # avg_gray = cvCreateImage( sz, 8, 1 )        
         # if self.last_gray:
         #     cvAddWeighted(gray,0.5,self.last_gray,0.5,0,avg_gray)                
         # else:
         #     avg_gray = cvCloneImage(gray)
-        
+        # 
         # self.last_gray = cvCloneImage(gray)
         
 
 
         # compute the adaptive threshold
         tgray = cvCreateImage( sz, 8, 1 );
-        cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,13,16)
-        # cvThreshold(gray,tgray,225,255,CV_THRESH_BINARY) 
-
+        cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY_INV,13,16)
+        # cvAdaptiveThreshold(gray,tgray,255,CV_ADAPTIVE_THRESH_MEAN_C,CV_THRESH_BINARY,17,3)
+        # cvThreshold(gray,tgray,190,255,CV_THRESH_BINARY_INV) 
+        
         # self.thresh_samples.append(tgray)
         # agray = cvCreateImage( sz, 8, 1 );
         # for thresh_sample in self.thresh_samples:
@@ -755,8 +813,8 @@ class WorkerTest():
         # 
         # self.thresh_samples = self.thresh_samples[-5:5]
         # test_images.append(agray)
-
-
+        
+        
         test_images.append(tgray)
         
         # cvShowImage(adapt,tgray)
@@ -765,7 +823,7 @@ class WorkerTest():
         cgray = cvCreateImage( sz, 8, 1 );
         cvCanny( gray, cgray, self.thresh_bot, self.thresh_top, 3 );
         test_images.append(cgray)
-        # cvShowImage(canny,cgray)
+        # cvShowImage(adapt,cgray)
 
         contour_list = []
 
@@ -792,27 +850,27 @@ class WorkerTest():
                         # if cvMatchShapes(square,contour,2) < 0.001:
                             # print str(cvMatchShapes(square,contour,2))        
                         result = cvApproxPoly( contour, sizeof(CvContour), my_storage,
-                            CV_POLY_APPROX_DP, perim*0.005, 0 )
+                            CV_POLY_APPROX_DP, perim*0.03, 0 )
                         # Make sure the result is roughly a perfect square. Check side length
                         # and cross angles
                         # number of verticies == 4
                         if result.total == 4 and cvCheckContourConvexity(result):
                             points = result.asarray(CvPoint)
 
+                            # gfx_points = [(int(point.x),int(point.y)) for point in points]
+                            # #draw all contours
+                            # pygame.gfxdraw.polygon(self.paint_buffer, gfx_points, (255,255,0))
+
                             # mult = 1.0
                             # scale the points to the multiplier
                             # points = [CvPoint(int(point.x*mult),int(point.y*mult)) for point in points]
-                            # gfx_points = [(int(point.x),int(point.y)) for point in points]
-                            # draw all contours
-                            # pygame.gfxdraw.polygon(self.paint_buffer, gfx_points, (255,255,0))
 
                             # check that the sides are roughly equal in length
                             if self.equal_length_check(points,int(perim/4.0*0.25)):
                                 # check that opposite angles are roughly 90 degrees
                                 if self.right_angle_check(points):
                                     center = self.center_point(points)
-                                    #"contour":result
-                                    contour_list.append({"perim":perim,"points":points,"center":center, "seq":result})
+                                    contour_list.append({"perim":perim,"points":points,"center":center})
                     try:
                         contour = contour.h_next
                     except AttributeError:
@@ -872,6 +930,8 @@ class WorkerTest():
             dest_points = [new_square_top_left,cvPoint(new_square_top_left.x + size, new_square_top_left.y),cvPoint(new_square_top_left.x + size, new_square_top_left.y + size), cvPoint(new_square_top_left.x, new_square_top_left.y + size)]            
             # the outer bounds of the newly remapped square image
             bounds = (dest_points[0].x,dest_points[0].y,int(size+0.5),int(size+0.5))
+
+            self.oflow_test = max_square['points'][:]
 
             # compute distortion matrix
             pt_array = CvPoint2D32f * 4
@@ -941,14 +1001,17 @@ def main():
 
     cvWindows = []
 
-    # cvNamedWindow(lk, CV_WINDOW_AUTOSIZE)
+    cvNamedWindow(lk, CV_WINDOW_AUTOSIZE)
     # cvNamedWindow(canny, CV_WINDOW_AUTOSIZE)
     cvNamedWindow(adapt, CV_WINDOW_AUTOSIZE)
     cvNamedWindow(sub_win, CV_WINDOW_AUTOSIZE)
+    cvNamedWindow(small_win, CV_WINDOW_AUTOSIZE)
+
 
     names =  [args[0]]
     name = names[0]
     #for name in names:
+
 
     take_sequence = False
     seq_count = 10
@@ -970,10 +1033,12 @@ def main():
         # cvSetCaptureProperty( capture, CV_CAP_PROP_FPS, 10 )
         worker.frame_buffer = cvQueryFrame( capture )
 
-        # worker_oflow = threading.Thread(target=worker.oflow_points)
-        # worker_oflow.start()
-
         (o_width,o_height) = [cvGetCaptureProperty(capture, prop) for prop in [CV_CAP_PROP_FRAME_WIDTH,CV_CAP_PROP_FRAME_HEIGHT]]
+
+
+
+    half_size = (int(o_width / 4.0), int(o_height / 4.0))
+    worker.small_frame = cvCreateImage(half_size, 8, 3)
 
     diff = 0
     # if o_height == 1200:
@@ -1037,6 +1102,12 @@ def main():
     left_worker_thread = threading.Thread(target=worker.detect,args=(left_rect,zone1))
     left_worker_thread.start()
 
+
+    # worker_oflow = threading.Thread(target=worker.oflow_points)
+    # worker_oflow.start()
+
+
+
     # right_rect = cvRect(right_x,both_y,scan_dim,scan_dim)
     # right_worker_thread = threading.Thread(target=worker.detect,args=(right_rect,zone2))
     # right_worker_thread.start()
@@ -1075,31 +1146,35 @@ def main():
             # else:
             #     print str(e)
             
-        # copy the capture device frame to the worker frame_buffer
-        if synth:
-            worker.frame_buffer = cvCloneImage(synth_image[seq_num])
-            seq_num += 1
-            if seq_num >= seq_count:
-                seq_num = 0
-            time.sleep(0.25)
-            
-        else:
-            worker.frame_buffer = cvQueryFrame( capture )
+        # # copy the capture device frame to the worker frame_buffer
+        # if synth:
+        #     worker.frame_buffer = cvCloneImage(synth_image[seq_num])
+        #     seq_num += 1
+        #     if seq_num >= seq_count:
+        #         seq_num = 0
+        #     time.sleep(0.25)
+        #     
+        # else:
+        worker.frame_buffer = cvQueryFrame( capture )
+
+
+        cvResize(worker.frame_buffer, worker.small_frame)
+        cvShowImage(small_win, worker.small_frame)
 
         # no data in the frame buffer means we're done
         if not worker.frame_buffer:
             break
 
 
-        if take_sequence:
-            print "Snap Frame"
-            sequence.append(cvCloneImage(worker.frame_buffer))
-            
-            if len(sequence) == seq_count:
-                for frame in sequence:
-                    cvSaveImage(('''image_%.2d.jpg''' % sequence.index(frame)), frame)
-                take_sequence = False
-                sequence = []
+        # if take_sequence:
+        #     print "Snap Frame"
+        #     sequence.append(cvCloneImage(worker.frame_buffer))
+        #     
+        #     if len(sequence) == seq_count:
+        #         for frame in sequence:
+        #             cvSaveImage(('''image_%.2d.jpg''' % sequence.index(frame)), frame)
+        #         take_sequence = False
+        #         sequence = []
             
         # convert the frame_buffer into a numpy array
         cpy = cvCloneImage(worker.frame_buffer)
