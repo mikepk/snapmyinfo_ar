@@ -101,7 +101,7 @@ class Square():
 
 class WorkerTest():
     '''A Class to implement a worker object. Accesses shared buffer and does some operations on it.'''
-    def __init__(self):
+    def __init__(self,size=(1280,720)):
         self.frame_buffer = None
         self.paint_buffer = None
 
@@ -136,7 +136,7 @@ class WorkerTest():
         
         self.sd = SquareDetector()
 
-        self.sd.init_image_buffers((int(640/4.0),int(480/4.0)))
+        self.sd.init_image_buffers((int(size[0]/4.0 + 0.5),int(size[1]/4.0 + 0.5)))
         
     def stop(self):
         '''Kill the worker threads?'''
@@ -171,7 +171,7 @@ class WorkerTest():
                 # print str(users)
             time.sleep(0.25)
     
-    def detect(self, rect, window_name):
+    def detect(self, window_name):
         '''Detect and decode barcodes in the image. If rect is passed, only process that subregion of the image.'''
         # self.zonecolor[window_name] = CV_RGB(255,255,255)
         # self.decoded[window_name] = False
@@ -193,17 +193,21 @@ class WorkerTest():
         orig_size = cvGetSize(self.frame_buffer)
         small_size = cvGetSize(self.small_frame)
 
-        rects = [rect]        
+        # rects = [rect]        
         last_frame = []
         last_rect = None
+        last_gx = None
+        last_squares = []
+        
         
         warped = cvCreateImage( orig_size, 8, 3)
         cpy = cvCreateImage( small_size, 8, 3)
-        print "hey!"
+
+        large_code = cvCreateImage( (290,290), 8, 3)
 
         while self.running:
             # sleep to avoid monopolizing CPU
-            time.sleep(0.2)
+            # time.sleep(0.5)
 
             # cpy = cvCloneImage(self.small_frame)
             
@@ -211,27 +215,93 @@ class WorkerTest():
             cvCopy(self.frame_buffer,warped)
             # orig_copy = cvCloneImage(self.frame_buffer)
             
-
             if last_rect:
-                gfxdraw.rectangle(self.paint_buffer, last_rect, Color(0,0,0))
-                last_rect = None
+                gfxdraw.rectangle(self.paint_buffer, last_rect, Color(255,255,0))
 
-            squares = self.sd.find_squares(cpy)
+            squares = self.sd.find_collapsed_squares(cpy)
+            
+            # if len(squares) >= 3:
+            #     print "====================="
+            #     for sq in squares:
+            #         print sq["perim"]
+            #         print sq["bound"]
+            #         print sq["points"]
+            #         print "--------"
+            #         
+            #     # print str(squares)
+            
+            # cvShowImage(adapt,self.sd.threshold_buffer)
+
             if squares:
-                bounds = self.sd.get_bounding_box(squares,4.0,0.15)
-                if bounds:
+
+
+                if last_squares:
+                    for sq in last_squares:
+                        # pyg_r = pygame.Rect(sq["bound"].x * 4.0, sq["bound"].y * 4.0, sq["bound"].width * 4.0, sq["bound"].height * 4.0)
+                        # gx = [(pt.x *4.0, pt.y  * 4.0) for pt in sq["points"]]
+                        gfxdraw.rectangle(self.paint_buffer, sq, Color(0,0,0))
+                    last_squares = []
+                    
+
+                for sq in squares:
+                    pyg_r = pygame.Rect(sq["center"].x * 4.0 - 100, sq["center"].y * 4.0 - 100, 200, 200)
+                    # print str(pyg_r)
+                    # gx = [(pt.x *4.0, pt.y  * 4.0) for pt in sq["points"]]
+                    gfxdraw.rectangle(self.paint_buffer, pyg_r, Color(0,255,0))
+                    last_squares.append(pyg_r)
+                # last_squares = squares[:]
+                
+                bounds = None
+                # bounds = self.sd.get_bounding_box(squares,4.0,0.15)
+                # print str(bounds)
+                
+                if bounds and bounds[0] > 0 and bounds[1] > 0 and bounds[0]+bounds[2] < orig_size.width and bounds[1]+bounds[3] < orig_size.height:
+
+                    if last_rect:
+                        gfxdraw.rectangle(self.paint_buffer, last_rect, Color(0,0,0))
+                        last_rect = None
+
                     draw_rect = pygame.Rect(bounds[0],bounds[1],bounds[2],bounds[3])
                     last_rect = draw_rect
                     gfxdraw.rectangle(self.paint_buffer, draw_rect, Color("red"))
+                    # gfxdraw.circle(self.paint_buffer, bounds[0]+100,bounds[1]+100,5, Color(0,128,200))
 
-
-
-                    # if p_mat:
-                    #     cvWarpPerspective(small,warped,p_mat)
-
-                    small = cvGetSubRect(warped, None, bounds)
-                    cvShowImage(sub_win,small)
-
+                    
+                    # # if p_mat:
+                    # #     cvWarpPerspective(small,warped,p_mat)
+                    # 
+                    # small = cvGetSubRect(warped, None, bounds)
+                    # # cvShowImage(sub_win,small)
+                    # 
+                    # 
+                    # small_size = (200,200) #cvGetSize(small)
+                    # sq2 = SquareDetector()
+                    # sq2.init_image_buffers(small_size)
+                    # 
+                    # 
+                    # b_squares = sq2.find_squares(small)
+                    # # # cvShowImage(adapt,sq2.threshold_buffer)
+                    # # for sq in b_squares:
+                    # #     gx = [(pt.x + bounds[0], pt.y  + bounds[1]) for pt in sq["points"]]
+                    # #     gfxdraw.polygon(self.paint_buffer, gx, Color(255,255,0))
+                    # # last_gx = b_squares[:]
+                    #     
+                    # hires_square = sq2.get_max_square(b_squares)
+                    #             
+                    # 
+                    # if hires_square:
+                    #     # other_points = [(pt.x,pt.y) for pt in hires_square["points"]]
+                    #     # pygame.gfxdraw.polygon(self.paint_buffer, other_points, (255,0,255))
+                    #     p_mat, dest = sq2.compute_perspective_warp(hires_square)
+                    #     new_warped = cvCreateImage(small_size, 8, 3)
+                    #     if p_mat:
+                    #         cvWarpPerspective(small,new_warped,p_mat)
+                    #         
+                    #         # cut_out = (dest[0].x,dest[0].y,dest[2].x-dest[0].x,dest[2].y-dest[0].y)
+                    #         # clipped = cvGetSubRect(new_warped, None, cut_out)
+                    #         #                     
+                    #         # cvResize(clipped,large_code)
+                    #         cvShowImage(sub_win,new_warped)
 
             # #if self.frame_buffer:
             # rect = rects[rect_idx]
@@ -995,9 +1065,9 @@ def main():
     #                   exist.""")
     opts, args = parser.parse_args()
 
-    pg_size = (640,480)
+    pg_size = (1280,720)
 
-    worker = WorkerTest()
+    worker = WorkerTest(pg_size)
 
     cvWindows = []
 
@@ -1025,12 +1095,14 @@ def main():
             synth_image.append(cvLoadImage('''image_%.2d.jpg''' % i))
         o_width = pg_size[0]
         o_height = pg_size[1]
+        # worker = WorkerTest(o_width,o_height)
         worker.frame_buffer = cvCloneImage(synth_image[0])
     else:
         capture = cvCreateCameraCapture( int(name) )
         cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_WIDTH, pg_size[0] )
         cvSetCaptureProperty( capture, CV_CAP_PROP_FRAME_HEIGHT, pg_size[1] )
         # cvSetCaptureProperty( capture, CV_CAP_PROP_FPS, 10 )
+        # worker = WorkerTest(o_width,o_height)
         worker.frame_buffer = cvQueryFrame( capture )
 
         (o_width,o_height) = [cvGetCaptureProperty(capture, prop) for prop in [CV_CAP_PROP_FRAME_WIDTH,CV_CAP_PROP_FRAME_HEIGHT]]
@@ -1040,7 +1112,9 @@ def main():
     half_size = (int(o_width / 4.0), int(o_height / 4.0))
     worker.small_frame = cvCreateImage(half_size, 8, 3)
 
-    diff = 0
+    cpy = cvCreateImage((int(o_width),int(o_height)), 8, 3)
+
+    # diff = 0
     # if o_height == 1200:
     #     diff = 0
     # elif o_height == 600:
@@ -1054,32 +1128,32 @@ def main():
     # else:
     #     diff = 0
 
-    o_height = o_height - (2 * diff)
+    # o_height = o_height - (2 * diff)
+    # 
+    # final_width = o_width
+    # worker.display_scale = final_width / o_width
+    # 
+    # width = final_width
+    # height = o_height * worker.display_scale
 
-    final_width = o_width
-    worker.display_scale = final_width / o_width
+    pg_size = (int(o_width),int(o_height))
 
-    width = final_width
-    height = o_height * worker.display_scale
-
-    pg_size = (int(width),int(height))
-
-    print "%d x %d" % (width,height)
-
-    # scan size is % of the height
-    scan_size = 0.25
-    # display square is a % of the scan size
-    disp_size = scan_size * 0.80
-    
-    display_dim = int((disp_size * height))
-    disp_left_x = int(0.25 * width - int(display_dim / 2.0))
-    disp_right_x = int(0.75 * width - int(display_dim / 2.0))
-    disp_both_y = int(0.85 * height - int(display_dim / 2.0))
-
-    scan_dim = int(scan_size * o_height)
-    left_x = int(0.25 * o_width - int(scan_dim / 2.0))
-    right_x = int(0.75 * o_width - int(scan_dim / 2.0))
-    both_y = int(0.85 * o_height - int(scan_dim / 2.0))
+    # print "%d x %d" % (width,height)
+    # 
+    # # scan size is % of the height
+    # scan_size = 0.25
+    # # display square is a % of the scan size
+    # disp_size = scan_size * 0.80
+    # 
+    # display_dim = int((disp_size * height))
+    # disp_left_x = int(0.25 * width - int(display_dim / 2.0))
+    # disp_right_x = int(0.75 * width - int(display_dim / 2.0))
+    # disp_both_y = int(0.85 * height - int(display_dim / 2.0))
+    # 
+    # scan_dim = int(scan_size * o_height)
+    # left_x = int(0.25 * o_width - int(scan_dim / 2.0))
+    # right_x = int(0.75 * o_width - int(scan_dim / 2.0))
+    # both_y = int(0.85 * o_height - int(scan_dim / 2.0))
 
 
     pg_display = pygame.display.set_mode( pg_size, 0) 
@@ -1096,11 +1170,11 @@ def main():
 
     # some debug information
     print 'Driver %s\n' % pygame.display.get_driver()
-    print '''left x:%d right x:%d  scan dimension: %d''' % (left_x, right_x, scan_dim)
+    # print '''left x:%d right x:%d  scan dimension: %d''' % (left_x, right_x, scan_dim)
     
-    left_rect = cvRect(0,0,int(width),int(height)) # left_x,both_y,scan_dim,scan_dim)
-    left_worker_thread = threading.Thread(target=worker.detect,args=(left_rect,zone1))
-    left_worker_thread.start()
+    # left_rect = cvRect(0,0,int(width),int(height)) # left_x,both_y,scan_dim,scan_dim)
+    worker_thread = threading.Thread(target=worker.detect, args=("Square Scanner",))
+    worker_thread.start()
 
 
     # worker_oflow = threading.Thread(target=worker.oflow_points)
@@ -1177,7 +1251,11 @@ def main():
         #         sequence = []
             
         # convert the frame_buffer into a numpy array
-        cpy = cvCloneImage(worker.frame_buffer)
+        cvCopy(worker.frame_buffer, cpy) #CloneImage(worker.frame_buffer)
+        
+        # if resize:
+        #     cvResize(cpy,resiz)
+        
         # the surface RGB values are not the same as the cameras
         # this means that two of the channels have to be swapped in the numpy
         # array before being blit'ted ont the array
