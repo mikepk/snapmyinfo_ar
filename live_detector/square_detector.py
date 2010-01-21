@@ -77,9 +77,9 @@ class SquareDetector(object):
     # Get the center coordinate of a square
     def center_point( self, points ):
         '''Average the corner coordinates to find the center of the square.'''
-        last_l = 0
-        max_diff = 0
-        a = [0,1,2,3]
+        # last_l = 0
+        # max_diff = 0
+        # a = [0,1,2,3]
         cx1 = abs(points[0].x + points[2].x) / 2.0
         cy1 = abs(points[0].y + points[2].y) / 2.0
 
@@ -152,7 +152,7 @@ class SquareDetector(object):
         if not squares:
             return []
 
-        # sort them all in ascending order by y
+        # sort them all in ascending order by total perimeter
         sorted_squares = sorted(squares,lambda x,y:int(y["perim"]*100.0 - x["perim"]*100.0))
 
 
@@ -182,7 +182,7 @@ class SquareDetector(object):
         test_images.append(self.threshold_buffer)
         
         
-        # cvShowImage(adapt,self.threshold_buffer)
+        cvShowImage(adapt,self.threshold_buffer)
 
         
         # compute the canny edge detector version of the image
@@ -191,7 +191,6 @@ class SquareDetector(object):
         test_images.append(self.canny_buffer)
         # cvShowImage(adapt,self.canny_buffer)
 
-        # list of all the extracted candidate squares
         square_list = []
 
         # iterate on all processed images

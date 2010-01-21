@@ -78,29 +78,12 @@ class Code():
         self.sample_window = []
         
     def scan_samples(self,samples):
-        '''Check all square samples, collect ones that may be relevant to this code.'''
+        '''Check all squarew samples, collect ones that may be relevant to this code.'''
         pass
 
 
-
-class Circle():
-    '''a circle object in the display'''
-    def __init__(self,x,y,r):
-        self.x = x
-        self.y = y
-        self.r = r
-
-class Square():
-    '''a circle object in the display'''
-    def __init__(self,center,perim,points):
-        self.center = center
-        self.perim = perim
-        self.points = points
-
-
-
-class WorkerTest():
-    '''A Class to implement a worker object. Accesses shared buffer and does some operations on it.'''
+class GrossTracker():
+    '''A Class to implement a tracking object. Accesses shared buffer and does some operations on it.'''
     def __init__(self,size=(1280,720)):
         self.frame_buffer = None
         self.paint_buffer = None
@@ -173,21 +156,6 @@ class WorkerTest():
                 # print str(users)
             time.sleep(0.25)
     
-    
-    def analyze_frame(self):
-        '''Analyze the frame for squares.'''
-        # copy the main frame buffers into local working copies
-        # cvCopy(self.small_frame,small_frame)
-        # cvCopy(self.frame_buffer,frame)
-        # orig_copy = cvCloneImage(self.frame_buffer)
-         
-        # if last_rect:
-        #     gfxdraw.rectangle(self.paint_buffer, last_rect, Color(255,255,0))
-
-        # get the square regions we think there are QR codes in
-        return self.sd.find_collapsed_squares(self.small_frame)
-    
-    
     def detect(self, window_name):
         '''Detect and decode barcodes in the image. If rect is passed, only process that subregion of the image.'''
         orig_size = cvGetSize(self.frame_buffer)
@@ -215,18 +183,16 @@ class WorkerTest():
                 continue
             self.new_frame = False
             
-            squares = self.analyze_frame()
+            # copy the main frame buffers into local working copies
+            cvCopy(self.small_frame,small_frame)
+            cvCopy(self.frame_buffer,frame)
+            # orig_copy = cvCloneImage(self.frame_buffer)
             
-            # # copy the main frame buffers into local working copies
-            # cvCopy(self.small_frame,small_frame)
-            # cvCopy(self.frame_buffer,frame)
-            # # orig_copy = cvCloneImage(self.frame_buffer)
-            # 
-            # # if last_rect:
-            # #     gfxdraw.rectangle(self.paint_buffer, last_rect, Color(255,255,0))
-            # 
-            # # get the square regions we think there are QR codes in
-            # squares = self.sd.find_collapsed_squares(small_frame)
+            # if last_rect:
+            #     gfxdraw.rectangle(self.paint_buffer, last_rect, Color(255,255,0))
+
+            # get the square regions we think there are QR codes in
+            squares = self.sd.find_collapsed_squares(small_frame)
 
             if squares:
                 # clear the last set of squares found
@@ -1057,7 +1023,7 @@ def main():
     #                   exist.""")
     opts, args = parser.parse_args()
 
-    pg_size = (640,480)
+    pg_size = (1280,720)
 
     worker = WorkerTest(pg_size)
 
@@ -1162,8 +1128,8 @@ def main():
     # print '''left x:%d right x:%d  scan dimension: %d''' % (left_x, right_x, scan_dim)
     
     # left_rect = cvRect(0,0,int(width),int(height)) # left_x,both_y,scan_dim,scan_dim)
-    # worker_thread = threading.Thread(target=worker.detect, args=("Square Scanner",))
-    # worker_thread.start()
+    worker_thread = threading.Thread(target=worker.detect, args=("Square Scanner",))
+    worker_thread.start()
 
 
     # worker_oflow = threading.Thread(target=worker.oflow_points)
@@ -1177,9 +1143,7 @@ def main():
 
     # connect_thread = threading.Thread(target=worker.connect)
     # connect_thread.start()    
-    last_squares = []
-    frames = []
-    
+
     running = True
     while running:
         # get the pygame events
@@ -1222,53 +1186,8 @@ def main():
         # else:
         worker.frame_buffer = cvQueryFrame( capture )
         worker.new_frame = True
+
         cvResize(worker.frame_buffer, worker.small_frame)
-
-        squares = worker.analyze_frame()
-
-        frames.insert(0,squares)
-
-        if len(frames) >= 7:
-            tgt = frames.pop()
-            if tgt:
-                for sq in tgt:
-                    pyg_r = pygame.Rect(sq["center"].x * 4.0 - 100, sq["center"].y * 4.0 - 100, 200, 200)
-                    # pyg_r = pygame.Rect(sq["bound"].x * 4.0, sq["bound"].y * 4.0, sq["bound"].width * 4.0, sq["bound"].height * 4.0)
-                    # gx = [(pt.x *4.0, pt.y  * 4.0) for pt in sq["points"]]
-                    gfxdraw.rectangle(worker.paint_buffer, pyg_r, Color(0,0,0))
-        
-
-        # # copy the main frame buffers into local working copies
-        # cvCopy(self.small_frame,small_frame)
-        # cvCopy(self.frame_buffer,frame)
-        # # orig_copy = cvCloneImage(self.frame_buffer)
-        # 
-        # # if last_rect:
-        # #     gfxdraw.rectangle(self.paint_buffer, last_rect, Color(255,255,0))
-        # 
-        # # get the square regions we think there are QR codes in
-        # squares = self.sd.find_collapsed_squares(small_frame)
-
-        if squares:
-            # # clear the last set of squares found
-            # if last_squares:
-            #     for sq in last_squares:
-            #         # pyg_r = pygame.Rect(sq["bound"].x * 4.0, sq["bound"].y * 4.0, sq["bound"].width * 4.0, sq["bound"].height * 4.0)
-            #         # gx = [(pt.x *4.0, pt.y  * 4.0) for pt in sq["points"]]
-            #         gfxdraw.rectangle(worker.paint_buffer, sq, Color(0,0,0))
-            #     last_squares = []
-     
-            # draw the current set of squares
-            for sq in squares:
-                pyg_r = pygame.Rect(sq["center"].x * 4.0 - 100, sq["center"].y * 4.0 - 100, 200, 200)
-                # print str(pyg_r)
-                # gx = [(pt.x *4.0, pt.y  * 4.0) for pt in sq["points"]]
-                gfxdraw.rectangle(worker.paint_buffer, pyg_r, Color(0,255,0))
-                # last_squares.append(pyg_r)
-
-
-
-
         cvShowImage(small_win, worker.small_frame)
 
         # no data in the frame buffer means we're done
