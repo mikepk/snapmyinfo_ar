@@ -85,7 +85,6 @@ class SquareDetector(object):
 
         cx2 = abs(points[1].x + points[3].x) / 2.0
         cy2 = abs(points[1].y + points[3].y) / 2.0
-
         return cvPoint((cx1 + cx2) / 2.0, (cy1 + cy2) / 2.0)
 
         
