@@ -60,6 +60,13 @@ class SnapRemoteCard():
         if not self.get_ready():
             return None
 
+
+        match = re.search(r'\/([^\/]*)$',card_id)
+        if match:
+            card_id = match.group(1)
+
+
+
         # server is ready, send the commands
         self.sock.send("get:%s\n" % card_id)
         time.sleep(0.1)

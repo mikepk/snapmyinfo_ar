@@ -44,7 +44,7 @@ from TrackerPool import TrackerPool
 
 from ImageBuffer import ImageBuffer
 
-import Image
+import Image, ImageDraw, ImageFont
 
 def main():
     # import os
@@ -63,7 +63,13 @@ def main():
     opts, args = parser.parse_args()
 
     pg_size = (1280,720)
-    scale = 4.0
+    
+    # scale is roughly equivalent to tracking precision
+    # the higher the scale, the less precise, but faster, the gross
+    # tracking will be scale of 1 means 1:1 tracking, but can be slow
+    # recommend 2-4 as a good scale/precision factor. higher res images
+    # usually benefit from higher scale
+    scale = 3.0
     
     names =  [args[0]]
     name = names[0]
@@ -121,10 +127,17 @@ def main():
     last_rects = []
     last_fills = []
     
-    closer_img = Image.open('closer.png')
-    print closer_img.size
-    print closer_img.mode
-    py_closer = pygame.image.frombuffer(closer_img.tostring(), closer_img.size, closer_img.mode).convert_alpha() 
+    # font_arial = ImageFont.truetype("arial.ttf", 15)
+    # size = font_arial.getsize("Michael Kowalchik")
+    # closer_img = Image.new('RGBA',(size[0]+40,size[1]+40),(200,200,200,255))
+    # draw = ImageDraw.Draw(closer_img)
+    # draw.text((20, 20), "Michael Kowalchik", font=font_arial, fill=(7,7,7))
+
+    
+    # # closer_img = Image.open('closer.png')
+    # print closer_img.size
+    # print closer_img.mode
+    # py_closer = pygame.image.frombuffer(closer_img.tostring(), closer_img.size, closer_img.mode).convert_alpha() 
     # py_closer = py_closer
     
     still = False
@@ -173,17 +186,26 @@ def main():
         # boundaries will be replaced (or turned off)
         for t_id in pool.active_trackers:
             #rect = pool.trackers[t_id].get_bound_rect()
-
-            x_diff = closer_img.size[0] / 2.0
-            y_diff = closer_img.size[1] / 2.0
-
             center = pool.trackers[t_id].get_avg_center(4)
-            rect = pygame.Rect(center.x * scale - x_diff, center.y * scale - y_diff, closer_img.size[0],closer_img.size[1])
+
+            if pool.trackers[t_id].sprite:
+                # print str(dir(pool.trackers[t_id].sprite))
+                sprite_size = pool.trackers[t_id].sprite.get_size()
+                # print str(sprite_size)
+                x_diff = sprite_size[0] / 2.0
+                y_diff = sprite_size[1] / 2.0
+                
+                rect = pygame.Rect(center.x * scale - x_diff, center.y * scale - y_diff, sprite_size[0],sprite_size[1])
+                pygame.gfxdraw.rectangle(image_buffer.paint_buffer, rect, pool.trackers[t_id].color)
+                last_rects.append(rect)
+                if pool.trackers[t_id].user_id:
+                     image_buffer.paint_buffer.blit(pool.trackers[t_id].sprite,(rect.x ,rect.y ))
+                     last_fills.append(rect) #pygame.Rect(rect.x ,rect.y ,closer_img.size[0],closer_img.size[1]))
+            else:
+                rect = pygame.Rect(center.x * scale - 100, center.y * scale - 100, 200,200)
+
             pygame.gfxdraw.rectangle(image_buffer.paint_buffer, rect, pool.trackers[t_id].color)
             last_rects.append(rect)
-            if pool.trackers[t_id].user_id:
-                image_buffer.paint_buffer.blit(py_closer,(rect.x ,rect.y ))
-                last_fills.append(rect) #pygame.Rect(rect.x ,rect.y ,closer_img.size[0],closer_img.size[1]))
 
 
         # draw the orphans
@@ -212,7 +234,7 @@ def main():
         pg_display.blit(image_buffer.paint_buffer,(0,0))
 
         if still == True:
-            pygame.image.save(pg_display, 'test.png')
+            pygame.image.save(pg_display, 'test.jpg')
             still = False
 
         # flip() actually displays the surface

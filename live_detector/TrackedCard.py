@@ -39,6 +39,10 @@ from pygame.locals import *
 from square_detector import SquareDetector
 from qrcode import qrcode
 
+from SnapRemoteCard import SnapRemoteCard
+
+from GraphicCard import GraphicCard
+
 class TrackedCard(object):
     '''An object to track users in the frame.'''
 
@@ -64,6 +68,11 @@ class TrackedCard(object):
         
         self.idle = True        
         self.user_id = None
+        self.sprite = None
+
+        self.src = SnapRemoteCard()
+
+
         
         # self.pool = pool
 
@@ -88,7 +97,8 @@ class TrackedCard(object):
         if not self.idle and len(self.frames) == 0:
             self.user_id = None
             self.idle = True
-        
+            self.sprite = None
+            
         self.processed = False
 
 
@@ -183,9 +193,9 @@ class TrackedCard(object):
                 continue
 
             # if the code size is too small, we won't be able to decode it
-            if squares[0]["perim"] < 276.0:
-                print "too small"
-                continue
+            # if squares[0]["perim"] < 276.0:
+            #     print "too small"
+            #     continue
 
             p_mat, dest = self.sd.compute_perspective_warp(squares[0])
 
@@ -199,14 +209,25 @@ class TrackedCard(object):
             # chop = cvGetSubRect(warped,None,clip)
 
             cvResize(warped,big_size)
-
             # cvShowImage(win_name,big_size)
 
             decode_img = ipl_to_pil(big_size)
             data = qc.decode(decode_img)
             print data
-            if data != "NO BARCODE":
+            if data != "NO BARCODE" and data != "java.lang.IllegalArgumentException Data Error":
+                try:
+                    card = self.src.get_card(data)
+                except Exception, e:
+                    print str(e)
+                    print "Something went wrong on the server."
+                    self.src.socket = None
+                    self.src.start()
+
+                print str(card)
+                
                 self.user_id = data
+                gc = GraphicCard()
+                self.sprite = gc.gen_sprite(card)
 
             #     print data
 
