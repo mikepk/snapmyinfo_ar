@@ -80,12 +80,12 @@ class SquareDetector(object):
         # last_l = 0
         # max_diff = 0
         # a = [0,1,2,3]
-        cx1 = abs(points[0].x + points[2].x) / 2.0
-        cy1 = abs(points[0].y + points[2].y) / 2.0
+        cx1 = (points[0].x + points[2].x) / 2.0
+        cy1 = (points[0].y + points[2].y) / 2.0
 
-        cx2 = abs(points[1].x + points[3].x) / 2.0
-        cy2 = abs(points[1].y + points[3].y) / 2.0
-        return cvPoint((cx1 + cx2) / 2.0, (cy1 + cy2) / 2.0)
+        cx2 = (points[1].x + points[3].x) / 2.0
+        cy2 = (points[1].y + points[3].y) / 2.0
+        return cvPoint(int((cx1 + cx2) / 2.0 + 0.5), int((cy1 + cy2) / 2.0 + 0.5))
 
         
     def angle(self, pt0, pt1, pt2 ):
@@ -181,7 +181,7 @@ class SquareDetector(object):
         test_images.append(self.threshold_buffer)
         
         
-        cvShowImage(adapt,self.threshold_buffer)
+        # cvShowImage(adapt,self.threshold_buffer)
 
         
         # compute the canny edge detector version of the image
@@ -253,51 +253,51 @@ class SquareDetector(object):
 
         return top+bot
 
-    def get_max_square(self,square_list):
-        '''Run through all the squares in a list and determine the largest outer square.'''
-
-        # this should also probably be smarter about measuring distances to the
-        # center point and splitting objects
-        
-        # should be an object prop
-        max_perim = 40
-        max_square = None
-
-        for square in square_list:
-            if square['perim'] > max_perim:
-                max_perim = square['perim']
-                max_square = square
-
-        return max_square
-
-
-    def get_bounding_box(self,square_list,scale=1.0,padding=0):
-        '''Return a bounding box for the squares.'''
-
-        max_sq = self.get_max_square(square_list)
-
-        if not max_sq:
-            return ()
-            
-        center = max_sq["center"]
-        # print center
-        
-        return (int(center.x * scale - 25 * scale), int(center.y * scale - 25 * scale), int(50 * scale), int(50 * scale))
+    # def get_max_square(self,square_list):
+    #     '''Run through all the squares in a list and determine the largest outer square.'''
+    # 
+    #     # this should also probably be smarter about measuring distances to the
+    #     # center point and splitting objects
+    #     
+    #     # should be an object prop
+    #     max_perim = 40
+    #     max_square = None
+    # 
+    #     for square in square_list:
+    #         if square['perim'] > max_perim:
+    #             max_perim = square['perim']
+    #             max_square = square
+    # 
+    #     return max_square
 
 
-        # x_array = sorted([int(pt.x * scale + 0.5) for pt in max_sq['points']])
-        # y_array = sorted([int(pt.y * scale + 0.5) for pt in max_sq['points']])
-        # 
-        # x_size = x_array[3] - x_array[0]
-        # y_size = y_array[3] - y_array[0]
-        # 
-        # x_pad = 0
-        # y_pad = 0
-        # if padding:
-        #     x_pad = int(x_size * padding + 0.5)
-        #     y_pad = int(y_size * padding + 0.5)
-        # 
-        # return (x_array[0] - x_pad,y_array[0] - y_pad,x_size+int(x_pad*2.0),y_size+int(y_pad*2.0))
+    # def get_bounding_box(self,square_list,scale=1.0,padding=0):
+    #     '''Return a bounding box for the squares.'''
+    # 
+    #     max_sq = self.get_max_square(square_list)
+    # 
+    #     if not max_sq:
+    #         return ()
+    #         
+    #     center = max_sq["center"]
+    #     # print center
+    #     
+    #     return (int(center.x * scale - 25 * scale), int(center.y * scale - 25 * scale), int(50 * scale), int(50 * scale))
+    # 
+    # 
+    #     # x_array = sorted([int(pt.x * scale + 0.5) for pt in max_sq['points']])
+    #     # y_array = sorted([int(pt.y * scale + 0.5) for pt in max_sq['points']])
+    #     # 
+    #     # x_size = x_array[3] - x_array[0]
+    #     # y_size = y_array[3] - y_array[0]
+    #     # 
+    #     # x_pad = 0
+    #     # y_pad = 0
+    #     # if padding:
+    #     #     x_pad = int(x_size * padding + 0.5)
+    #     #     y_pad = int(y_size * padding + 0.5)
+    #     # 
+    #     # return (x_array[0] - x_pad,y_array[0] - y_pad,x_size+int(x_pad*2.0),y_size+int(y_pad*2.0))
         
         
     def compute_perspective_warp(self,square):

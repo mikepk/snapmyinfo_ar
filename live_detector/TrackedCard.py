@@ -2,10 +2,7 @@
 #
 import sys
 
-# #from opencv.cv import *
-# #from opencv.highgui import *
-# 
-# from ctypes_opencv import *
+from ctypes_opencv import *
 # 
 # from math import sqrt
 # 
@@ -15,10 +12,10 @@ import sys
 # import math
 # 
 # import threading
-# import time
+import time
 # from optparse import OptionParser
 # 
-# from qrcode import qrcode
+from qrcode import qrcode
 # 
 # import Image, ImageEnhance, ImageFont, ImageDraw, ImageOps
 # 
@@ -49,15 +46,27 @@ class TrackedCard(object):
     # needs a thread that operates on the object changing the state of the CardUser
     # states are "TooFar", "Scanning", "ID"
 
-    def __init__(self, my_id):
+    def __init__(self, my_id, buffers):
         print "id! %d" % my_id
+
+        self.image_buffer = buffers
+
         self.id = my_id
         self.frames = []
         self.last_frame = None
         self.buffer = None
-        self.idle = True
+
         self.colors = [Color(0,255,0), Color(0,0,255),Color(255,255,0),Color(255,0,0)]
         self.color = self.colors[self.id]
+        
+        self.sd = SquareDetector()
+        self.sd.init_image_buffers((int(50 * self.image_buffer.scale + 0.5),int(50 * self.image_buffer.scale + 0.5)))
+        
+        self.idle = True        
+        self.user_id = None
+        
+        # self.pool = pool
+
 
     def add(self,square):
         self.buffer = square
@@ -77,7 +86,10 @@ class TrackedCard(object):
 
         # not tracking anything, we're now idle
         if not self.idle and len(self.frames) == 0:
+            self.user_id = None
             self.idle = True
+        
+        self.processed = False
 
 
     def get_bound_rect(self):
@@ -111,6 +123,17 @@ class TrackedCard(object):
             pygame.gfxdraw.rectangle(surface, pyg_r, Color(128,0,0))
             
             
+    def get_avg_center(self, count=2):
+        '''find the average center point for the last several frames.'''
+        f = self.frames[:count]
+        x_sum = sum([frame["center"].x for frame in f ])
+        y_sum = sum([frame["center"].y for frame in f ])
+        
+        x_avg = x_sum / len(f)
+        y_avg = y_sum / len(f)
+        
+        return cvPoint(int(x_avg),int(y_avg))
+        
     
     def check(self,square):
         '''Check if this square is part of the tracker pattern.'''
@@ -122,4 +145,78 @@ class TrackedCard(object):
             return False
 
 
+    def analyze(self):
+        '''Thread to analyze the data in the tracker window.'''
+        self.running = True
+        # hard code for now
+        work_buffer = cvCreateImage((int(self.image_buffer.scale * 50),int(self.image_buffer.scale * 50)),8,3)
+        win_name = 'thread-%d' % self.id
+        
+        warped = cvCreateImage((int(self.image_buffer.scale * 50),int(self.image_buffer.scale * 50)),8,3)
+        qc = qrcode()
+        
+        big_size = cvCreateImage((int(self.image_buffer.scale * 50) * 3,int(self.image_buffer.scale * 50) * 3),8,3)
 
+        while self.running:
+            # update 2 times a second
+            time.sleep(0.5)
+            # nothing to do, sleep the thread some more
+            if self.idle or self.user_id:
+                time.sleep(0.1)
+                continue
+
+            # extract the working image from the tracking window
+            #print str(tuple(*self.get_bound_rect()))
+            # args = []
+            # for i in self.get_bound_rect():
+            #     args.append(int(i*2.0 + 0.5))
+            rect = cvRect(*[int(i*self.image_buffer.scale + 0.5) for i in self.get_bound_rect()])
+            #print str(rect)
+            # # rect = Rect(rect.x * scale, rect.y * scale, rect.width * scale, rect.height * scale)
+            # work_buffer = cvGetSubRect(self.image_buffer.frame_buffer,None,rect)
+            cvCopy(cvGetSubRect(self.image_buffer.frame_buffer,None,rect),work_buffer)
+            #square = self.sd.get_collapsed_square
+            squares = self.sd.find_collapsed_squares(work_buffer)
+            
+            # if there are no squares (no codes) don't bother trying to decode
+            if not squares:
+                continue
+
+            # if the code size is too small, we won't be able to decode it
+            if squares[0]["perim"] < 276.0:
+                print "too small"
+                continue
+
+            p_mat, dest = self.sd.compute_perspective_warp(squares[0])
+
+            if not p_mat:
+                continue
+
+            cvWarpPerspective(work_buffer,warped,p_mat)
+            cvFlip(warped,warped,1)
+
+            # clip = cvRect(dest[0].x,dest[0].y,dest[2].x-dest[0].x,dest[2].y-dest[0].y)
+            # chop = cvGetSubRect(warped,None,clip)
+
+            cvResize(warped,big_size)
+
+            # cvShowImage(win_name,big_size)
+
+            decode_img = ipl_to_pil(big_size)
+            data = qc.decode(decode_img)
+            print data
+            if data != "NO BARCODE":
+                self.user_id = data
+
+            #     print data
+
+                
+            # print str(square)
+            # cvShowImage(win_name,self.image_buffer.frame_buffer)
+            # cvShowImage(win_name,work_buffer)
+            # print rect
+
+            
+            
+            
+            

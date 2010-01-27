@@ -2,6 +2,8 @@
 #
 import sys
 
+import threading
+import time
 # import pygame
 # from pygame.locals import *
 # 
@@ -17,19 +19,32 @@ class TrackerPool(object):
     # needs a thread that operates on the object changing the state of the CardUser
     # states are "TooFar", "Scanning", "ID"
 
-    def __init__(self, number_of_trackers=1):
+    def __init__(self, my_buffer, number_of_trackers=1):
         # create a number of trackers and assign them to the pool
+        #self.image_buffer = my_buffer
 
         self.active_trackers = []
         self.idle_trackers = []
         self.trackers = []
         for i in range(number_of_trackers):
-            self.trackers.append(TrackedCard(i))
+            tc = TrackedCard(i,my_buffer)
+            self.trackers.append(tc)
             self.idle_trackers.append(i)
+            
+            tracker_thread = threading.Thread(target=tc.analyze)
+            #,args=(left_rect,zone1))
+            tracker_thread.start()
+            
 
         self.orphan_list = []
         self.orphan_frames = []
 
+
+    def stop(self):
+        print "Shutting down all trackers."
+        for tracker in self.trackers:
+            tracker.running = False
+        time.sleep(0.25)
 
     def update(self):
         '''Update all trackers'''
