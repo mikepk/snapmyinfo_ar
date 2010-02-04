@@ -11,6 +11,7 @@ import time
 # from qrcode import qrcode
 from TrackedCard import TrackedCard
 
+from pygame.locals import Color
 
 class TrackerPool(object):
     '''An object to manage several trackers, run the tracking functions, deal with idle and working states.'''
@@ -26,8 +27,20 @@ class TrackerPool(object):
         self.active_trackers = []
         self.idle_trackers = []
         self.trackers = []
+        
+        self.colors = [Color(0,255,0),
+                       Color(0,0,255),
+                       Color(255,255,0),
+                       Color(255,0,0),
+                       Color(255,0,255),
+                       Color(0,255,255)]
+        
         for i in range(number_of_trackers):
-            tc = TrackedCard(i,my_buffer)
+            try:
+                c = self.colors[i]
+            except IndexError:
+                c = Color(255,255,255)
+            tc = TrackedCard(i,my_buffer,color=c)
             self.trackers.append(tc)
             self.idle_trackers.append(i)
             
@@ -39,12 +52,14 @@ class TrackerPool(object):
         self.orphan_list = []
         self.orphan_frames = []
 
+    def sort_active(self):
+        self.active_trackers = sorted(self.active_trackers,lambda x,y:int(self.trackers[x].get_avg_perimeter() - self.trackers[y].get_avg_perimeter()))
 
     def stop(self):
         print "Shutting down all trackers."
         for tracker in self.trackers:
             tracker.running = False
-        time.sleep(0.25)
+        time.sleep(1)
 
     def update(self):
         '''Update all trackers'''

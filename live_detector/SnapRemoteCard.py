@@ -31,10 +31,13 @@ class SnapRemoteCard():
         '''Connect to the socket in TCP mode.'''
         HOST, PORT = self.host,self.port
         # SOCK_STREAM == a TCP socket
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #sock.setblocking(0)  # optional non-blocking
-        self.sock.connect((HOST, PORT))
-        self.sock.settimeout(2.0)
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            #sock.setblocking(0)  # optional non-blocking
+            self.sock.connect((HOST, PORT))
+            self.sock.settimeout(2.0)
+        except socket.error, e:
+            print "Failed to connect to server for card transactions. (SnapRemoteCard)\n\t %s" % str(e)
 
 
     def get_ready(self):

@@ -216,7 +216,6 @@ class SquareDetector(object):
                         if result.total == 4 and cvCheckContourConvexity(result):
                             # turn the contour sequence into a CvPoint array
                             points = result.asarray(CvPoint)
-
                             # check that the sides are roughly equal in length
                             # perim/4 * 0.25 means the sides must be within 25% of each other
                             # this value is rounded
@@ -225,7 +224,10 @@ class SquareDetector(object):
                                 if self.right_angle_check(points):
                                     # store the perimeter value, the verticies, and the center point
                                     rect = self.cv_to_pygame_rect(cvBoundingRect(result))
-                                    square_list.append({"perim":perim,"points":points,"center":self.center_point(points),"bound":rect})
+                                    # copy the points, if you just save it, they're refs to the originals
+                                    # and get garbled as the memory space is re-used by opencv
+                                    my_points = [cvPoint(pt.x,pt.y) for pt in points]
+                                    square_list.append({"perim":perim,"points":my_points,"center":self.center_point(points),"bound":rect})
                     # if h_next throws an exception, 
                     # no contours in the image
                     try:
@@ -251,7 +253,8 @@ class SquareDetector(object):
         top = sorted(top, lambda x,y:x.x - y.x)
         bot = sorted(bot, lambda x,y:y.x - x.x)
 
-        return top+bot
+        x = top+bot
+        return x
 
     # def get_max_square(self,square_list):
     #     '''Run through all the squares in a list and determine the largest outer square.'''
@@ -304,7 +307,6 @@ class SquareDetector(object):
         '''Find the distortion matrix for a series of points in a square, remapped to a perfect square.'''
 
         square["points"] = self.reorder_points(square["points"])
-
         size = square['perim'] / 4.0
         
         # the projected square is a perfect square surrounding the center point. It's created of 
@@ -315,7 +317,7 @@ class SquareDetector(object):
         # compute distortion matrix
         pt_array = CvPoint2D32f * 4
         p_mat = cvCreateMat(3, 3, CV_32F)
-        p_src = pt_array(*((p.x, p.y) for p in square['points'] ))
+        p_src = pt_array(*((p.x, p.y) for p in square["points"] ))
         p_dst = pt_array(*((p.x, p.y) for p in dest_points))
 
         cvGetPerspectiveTransform(p_src, p_dst, p_mat)

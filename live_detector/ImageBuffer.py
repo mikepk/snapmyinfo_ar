@@ -24,6 +24,11 @@ class ImageBuffer(object):
 
         self.paint_buffer = pygame.Surface(self.size).convert()
         self.paint_buffer.set_colorkey((0,0,0))
+
+
+        self.hud_buffer = pygame.Surface(self.size).convert_alpha()
+        self.hud_buffer.fill((0,0,0,0),pygame.Rect(0,0,*self.size))
+        #self.hud_buffer.set_alpha(190)
         
     def update(self):
         '''Update the image buffer and scaled image buffer.'''
