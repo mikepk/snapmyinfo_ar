@@ -48,6 +48,8 @@ from ImageBuffer import ImageBuffer
 from Connector import Connector
 from Status import Status
 
+from DebugDisplay import DebugDisplay
+
 thread_objects = []
 
 def run_detector():
@@ -110,7 +112,7 @@ def run_detector():
     # initialize pygame
     pygame.init()
 
-
+    display_size = (800,600)
     video_size = (1280,720)
     
     # scale is roughly equivalent to tracking precision
@@ -151,17 +153,19 @@ def run_detector():
     if opts.hw_accel:
         flags = flags|pygame.HWSURFACE|pygame.DOUBLEBUF
 
-    video_layer = pygame.display.set_mode( video_size, flags ) 
+    display_layer = pygame.display.set_mode( display_size,  flags ) 
+
+    video = pygame.Surface(video_size).convert()
 
     # set the window name
     pygame.display.set_caption('Live Detector') 
 
     # some debug information
     # print the current driver being used
-    print 'Driver %s  Resolution: %s\n' % (pygame.display.get_driver(), video_size)
+    print 'Driver %s\nVideo Input Resolution: %s\nDisplay Resolution: %s\n' % (pygame.display.get_driver(), video_size, display_size)
 
     # for convert to work, pygame video mode has to be set
-    image_buffer = ImageBuffer(video_size,scale)
+    image_buffer = ImageBuffer(video_size,display_size,scale)
     if opts.no_video:
         image_buffer.frame_buffer = cvCreateImage(video_size,8,3)
         # blank = cvCreateImage(video_size,8,3)
@@ -179,8 +183,6 @@ def run_detector():
     connector.start()
     thread_objects.append(connector)
     
-
-
     # for i in range(4):
     #     win_name = "thread-%d" % i
     #     cvNamedWindow(win_name, CV_WINDOW_AUTOSIZE)
@@ -191,27 +193,18 @@ def run_detector():
     last_fills = []
     hud_last_fills = []
 
-    # font_arial = ImageFont.truetype("arial.ttf", 15)
-    # size = font_arial.getsize("Michael Kowalchik")
-    # closer_img = Image.new('RGBA',(size[0]+40,size[1]+40),(200,200,200,255))
-    # draw = ImageDraw.Draw(closer_img)
-    # draw.text((20, 20), "Michael Kowalchik", font=font_arial, fill=(7,7,7))
+    if opts.debug:
+        dbg = DebugDisplay()
 
     snap_logo = pygame.image.load('./images/snap_logo.png').convert_alpha()
     
     still = False
     running = True
-    last_fps = 0
+    fps = 0.0
     while running:
         pyg_clock.tick(max_frame_rate)
-        if update_count > 100:
+        if update_count > 20:
             fps = pyg_clock.get_fps()
-            if last_fps:
-                if abs(last_fps - fps) > 3.0:
-                    print '''%.2f fps change from %.2f fps''' % (fps, last_fps)
-            else:
-                print '''%.2f fps''' % (fps)
-            last_fps = fps
             update_count = 0
         update_count += 1
 
@@ -233,6 +226,8 @@ def run_detector():
 
         if opts.flip:
             cvFlip(image_buffer.frame_buffer,image_buffer.frame_buffer,1)
+            
+        # update the image buffer with the latest frame
         image_buffer.update()
 
         # analyze the small frame to find collapsed candidates
@@ -278,7 +273,7 @@ def run_detector():
                 
                 # frame_color = Color(250,250,255)
                 
-                rect = pygame.Rect(center.x * scale - x_diff, center.y * scale - y_diff, sprite_size[0],sprite_size[1])
+                rect = pygame.Rect(center.x * image_buffer.display_scale[0] - x_diff, center.y * image_buffer.display_scale[1] - y_diff, sprite_size[0],sprite_size[1])
                 # pygame.gfxdraw.rectangle(image_buffer.paint_buffer, rect, pool.trackers[t_id].color)
                 # last_rects.append(rect)
                 #if pool.trackers[t_id].user_id:
@@ -291,26 +286,30 @@ def run_detector():
                 # pygame.gfxdraw.rectangle(image_buffer.paint_buffer, rect, frame_color)
                 # last_rects.append(rect)
 
-                c = pygame.Color(164,229,135,210)
+                #c = pygame.Color(164,229,135,150)
+                #c1 = pygame.Color(164,229,135,255)
+                c = pygame.Color(229,229,135,200)
+                # c1 = pygame.Color(229,229,135,255)
 
                 pygame.gfxdraw.filled_polygon(image_buffer.hud_buffer, pool.trackers[t_id].get_bounding_points(),c)
-                #pygame.gfxdraw.polygon(image_buffer.hud_buffer, pool.trackers[t_id].get_bounding_points(),c1)
+                # pygame.gfxdraw.polygon(image_buffer.hud_buffer, pool.trackers[t_id].get_bounding_points(),c1)
                 # pygame.gfxdraw.rectangle(image_buffer.hud_buffer, rect, frame_color)
-                pygame.gfxdraw.filled_polygon(image_buffer.hud_buffer, pool.trackers[t_id].get_bounding_points(),c)
+                # pygame.gfxdraw.filled_polygon(image_buffer.hud_buffer, pool.trackers[t_id].get_bounding_points(),c)
                 hud_last_fills.append(pool.trackers[t_id].get_bound_rect())
                 
 
 
-
-
-
-
-        # draw the orphans
+        # draw the orphans and frame rate display
         # debug for now, lets me know when it's trying to lock onto something
         if opts.debug:
+            fps_sprite = dbg.gen_sprite('''%.2f fps''' % fps)
+            image_buffer.hud_buffer.blit(fps_sprite,(image_buffer.display_size[0]-100,10))
+            fps_rect = pygame.Rect(video_size[0]-100,10, dbg.size[0], dbg.size[1])
+            hud_last_fills.append(fps_rect)
+            
             for orphans in pool.orphan_frames:
                 for orphan in orphans:
-                    orphan = pygame.Rect(orphan.x * scale, orphan.y * scale, orphan.width * scale, orphan.height * scale)
+                    orphan = pygame.Rect(orphan.x * image_buffer.display_scale[0], orphan.y * image_buffer.display_scale[1], orphan.width * image_buffer.display_scale[0], orphan.height * image_buffer.display_scale[1])
                     pygame.gfxdraw.rectangle(image_buffer.paint_buffer, orphan, Color(190,255,190))
                     last_rects.append(orphan)
 
@@ -327,30 +326,32 @@ def run_detector():
         
         # blit_array zaps anything on the surface and completely replaces it with the array, much
         # faster than converting the bufer to a surface and bliting it
-        surfarray.blit_array(video_layer,surf_dat)
-
-
-        logo_size = snap_logo.get_size()
-        # image_buffer.paint_buffer.blit(snap_logo,(video_size[0]-logo_size[0]-10 , video_size[1]-logo_size[1]-10))
-        # last_fills.append(pygame.Rect(video_size[0]-logo_size[0]-10 , video_size[1]-logo_size[1]-10, logo_size[0], logo_size[1])) #pygame.Rect(rect.x ,rect.y ,closer_img.size[0],closer_img.size[1]))
-        video_layer.blit(snap_logo,(video_size[0]-logo_size[0]-10 , video_size[1]-logo_size[1]-10))
-
-
-
+        # replaces video with the data in surf_dat
+        surfarray.blit_array(video,surf_dat)
+        
+        # this resizes the video surface and stores it in display_layer. Completely
+        # overwrites whatever is in display_layer
+        pygame.transform.scale(video, image_buffer.display_size, display_layer)
+        
         # blit the paint buffer onto the surface. Paint buffer has a chromakey so all black values will show through
-        # video_layer.blit(pygame.transform.flip(worker.paint_buffer, True, False),(0,0))
-        video_layer.blit(image_buffer.paint_buffer,(0,0))
+        display_layer.blit(image_buffer.paint_buffer,(0,0))
 
-        video_layer.blit(image_buffer.hud_buffer,(0,0))
+        # the "HUD" is added next. 
+        display_layer.blit(image_buffer.hud_buffer,(0,0))
 
-
-
+        # Write out the status sprite to the display_layer
         if status.sprite:
-            video_layer.blit(status.sprite,(10,video_size[1] - status.height - 10 ))
+            display_layer.blit(status.sprite,(10,image_buffer.display_size[1] - status.height - 10 ))
+
+
+        # finally watermark the screen with the company logo and name of the product
+        # putting it here means it always shows above the other layers
+        logo_size = snap_logo.get_size()
+        display_layer.blit(snap_logo,(image_buffer.display_size[0]-logo_size[0]-10 , image_buffer.display_size[1]-logo_size[1]-10))
 
 
         if still == True:
-            pygame.image.save(video_layer, 'test.jpg')
+            pygame.image.save(display_layer, 'test.jpg')
             still = False
 
         # flip() actually displays the surface

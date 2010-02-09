@@ -102,12 +102,17 @@ class TrackedCard(object):
 
         # not tracking anything, we're now idle
         if not self.idle and len(self.frames) == 0:
-            self.user_id = None
-            self.idle = True
-            self.sprite = None
-            
-        self.processed = False
+            self.set_idle()
 
+        # self.processed = False
+
+
+    def set_idle(self):
+        self.user_id = None
+        self.idle = True
+        self.sprite = None
+        self.state = ''
+        
 
     def gen_window(self,square,scale,size):
         return pygame.Rect(square["center"].x * scale  - (size/2), square["center"].y * scale - (size/2), size, size)
@@ -122,13 +127,15 @@ class TrackedCard(object):
     def get_bound_rect(self):
         '''Get the scaled bounding rectangle'''
         # print self.frames[0]["bound"]
-        return pygame.Rect([attrib * self.image_buffer.scale for attrib in self.frames[0]["bound"]])
+        
+        # compute the bounding rectangle with the x and y scale factors computed separately
+        return pygame.Rect(self.frames[0]["bound"][0] * self.image_buffer.display_scale[0],
+        self.frames[0]["bound"][1] * self.image_buffer.display_scale[1],
+        self.frames[0]["bound"][2] * self.image_buffer.display_scale[0],
+        self.frames[0]["bound"][3] * self.image_buffer.display_scale[1])
 
     def get_bounding_points(self):
-        for point in self.frames[0]['points']:
-            if point.x > 640 or point.y > 480:
-                print '''XXXXXXXXXXXXXXXXXXXXXXXX\n%sXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n''' % str(self.frames[0]['points'])
-        return [(point.x * self.image_buffer.scale, point.y * self.image_buffer.scale) for point in self.frames[0]['points']]
+        return [(point.x * self.image_buffer.display_scale[0], point.y * self.image_buffer.display_scale[1]) for point in self.frames[0]['points']]
 
     def get_avg_perimeter(self, count=0):
         '''Find the average perimeter for all matched boundaries.'''
@@ -193,8 +200,8 @@ class TrackedCard(object):
     def constrain_rect(self,rect,image):
         rect.x = max(rect.x, 0)
         rect.y = max(rect.y, 0)
-        rect.x = min(rect.x, image.size[0] - rect.width)
-        rect.y = min(rect.y, image.size[1] - rect.height)
+        rect.x = min(rect.x, image.video_size[0] - rect.width)
+        rect.y = min(rect.y, image.video_size[1] - rect.height)
 
 
     def analyze(self):
@@ -221,18 +228,20 @@ class TrackedCard(object):
                 continue
 
             # extract the working image from the tracking window
-            #print str(tuple(*self.get_bound_rect()))
-            # args = []
-            # for i in self.get_bound_rect():
-            #     args.append(int(i*2.0 + 0.5))
+            # this creates a rectangle of scale,size based on the current
+            # tracking position
             rect = cvRect(*self.get_window(self.image_buffer.scale,200))
-            # rect = cvRect(*[int(i*self.image_buffer.scale + 0.5) for i in self.get_bound_rect(200)])
 
+            # if the rectangle exits the available pixels, an exception is thrown that
+            # kills openCV. So here we make sure the tracking window can't poke outside
+            # the available pixels of the image
             self.constrain_rect(rect,self.image_buffer)
 
-
+            # copy the subrectangle defined by the window + image_buffer into a working
+            # buffer
             cvCopy(cvGetSubRect(self.image_buffer.frame_buffer,None,rect),work_buffer)
 
+            # inside the working window, find the squares
             squares = self.sd.find_collapsed_squares(work_buffer)
             
             # if there are no squares (no codes) don't bother trying to decode
@@ -257,29 +266,25 @@ class TrackedCard(object):
                     self.sprite = self.gc.gen_closer_sprite()
                     self.state = 'too_far'
                     continue
-                                    
+
+            # compute a perspective warp that takes the corners of the found 
+            # square quadrilateral, and warps it into a perfect square.
             p_mat, dest = self.sd.compute_perspective_warp(squares[0])
 
             if not p_mat:
                 continue
-
+            
+            # apply the persepctive warp to the image and flip it for
+            # decoding
             cvWarpPerspective(work_buffer,warped,p_mat)
             cvFlip(warped,warped,1)
 
-            # clip = cvRect(dest[0].x - 5,dest[0].y - 5,dest[2].x-dest[0].x + 10,dest[2].y-dest[0].y + 10)
-            # 
-            # size = cvGetSize(warped)
-            # warped.size = (size.width,size.height)
-            # 
-            # print 'size %s,  clip before: %s' % (size, clip)
-            # self.constrain_rect(clip,warped)
-            # print 'size %s,  clip after: %s' % (size, clip)
-            # 
-            # chop = cvGetSubRect(warped,None,clip)
-
+            # does this help? Resizing it doesn't add any information, but it seems
+            # to help the decoder
             cvResize(warped,big_size,CV_INTER_CUBIC)
             # cvShowImage(win_name,work_buffer)
 
+            # create a pil image to pass to the decoder
             decode_img = ipl_to_pil(big_size)
             data = qc.decode(decode_img)
             if data != "NO BARCODE" and data != "java.lang.IllegalArgumentException Data Error":

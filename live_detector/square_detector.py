@@ -52,7 +52,7 @@ small_win = "Half Size"
 
 class SquareDetector(object):
     def __init__(self):
-        self.minimum_perimeter = 40
+        self.minimum_perimeter =40
 
         # square_detector buffers
         self.sz = None
